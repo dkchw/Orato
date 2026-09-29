@@ -46,4 +46,28 @@ QVector<WaveformPeak> computeWaveformPeaks(const std::vector<float> &pcm, int nu
 // Calculate RMS and Peak for VU meter from int16 PCM buffer
 void calculateLevels(const int16_t *data, size_t count, float &peak, float &rms);
 
+// Speech & Pronunciation Analysis Metrics
+struct SpeechMetrics {
+    float meanPitchHz = 0.0f;
+    float minPitchHz = 0.0f;
+    float maxPitchHz = 0.0f;
+    float pitchVariation = 0.0f; // std deviation
+    QString intonationTrend;     // "Rising ↗", "Falling ↘", "Dynamic 〰", "Steady →"
+    float peakDbfs = -90.0f;
+    float dynamicRangeDb = 0.0f;
+    float speechRatioPercent = 0.0f;
+    float pauseRatioPercent = 0.0f;
+    int wordsPerMinute = 0;
+    QString tempoRating;         // "Relaxed", "Natural Pace", "Brisk / Fast"
+};
+
+// Compute pitch track (F0 in Hz) using normalized autocorrelation with parabolic interpolation
+std::vector<float> computePitchTrack(const std::vector<float> &pcm, int sampleRate = 16000, int hopSize = 160, int frameSize = 480);
+
+// Compute frame energy track (0.0 to 1.0)
+std::vector<float> computeEnergyTrack(const std::vector<float> &pcm, int hopSize = 160, int frameSize = 480);
+
+// Analyze speech acoustic properties (tempo, pitch, intonation, vocal dynamics)
+SpeechMetrics analyzeSpeech(const std::vector<float> &pcm, qint64 durationMs, int wordCount = 0);
+
 } // namespace AudioUtils

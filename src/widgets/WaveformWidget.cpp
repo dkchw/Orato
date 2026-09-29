@@ -1,5 +1,6 @@
 #include "WaveformWidget.h"
 #include <QPainter>
+#include <QPainterPath>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QToolTip>
@@ -8,7 +9,7 @@
 
 WaveformWidget::WaveformWidget(QWidget *parent)
     : QWidget(parent) {
-    setMinimumHeight(110);
+    setMinimumHeight(125);
     setMouseTracking(true);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 }
@@ -35,7 +36,19 @@ void WaveformWidget::setLiveAudioData(const std::vector<float> &pcmSamples, qint
 
 void WaveformWidget::setSegments(const QList<AudioSegment> &segments) {
     m_segments = segments;
+    int wordCount = 0;
+    for (const auto &seg : m_segments) {
+        wordCount += seg.text.split(' ', Qt::SkipEmptyParts).size();
+    }
+    m_metrics = AudioUtils::analyzeSpeech(m_pcmSamples, m_durationMs, wordCount);
     update();
+}
+
+void WaveformWidget::setMode(WaveformMode mode) {
+    if (m_mode != mode) {
+        m_mode = mode;
+        update();
+    }
 }
 
 void WaveformWidget::setPlaybackPosition(qint64 positionMs) {
@@ -87,11 +100,22 @@ void WaveformWidget::resizeEvent(QResizeEvent *) {
 void WaveformWidget::recomputePeaks() {
     if (m_pcmSamples.empty() || width() <= 0) {
         m_peaks.clear();
+        m_pitchTrack.clear();
+        m_energyTrack.clear();
+        m_metrics = AudioUtils::SpeechMetrics();
         return;
     }
 
     int totalPixels = static_cast<int>(width() * m_zoomFactor);
     m_peaks = AudioUtils::computeWaveformPeaks(m_pcmSamples, totalPixels);
+    m_pitchTrack = AudioUtils::computePitchTrack(m_pcmSamples);
+    m_energyTrack = AudioUtils::computeEnergyTrack(m_pcmSamples);
+
+    int wordCount = 0;
+    for (const auto &seg : m_segments) {
+        wordCount += seg.text.split(' ', Qt::SkipEmptyParts).size();
+    }
+    m_metrics = AudioUtils::analyzeSpeech(m_pcmSamples, m_durationMs, wordCount);
 }
 
 int WaveformWidget::msToX(qint64 ms) const {
@@ -193,11 +217,11 @@ void WaveformWidget::paintEvent(QPaintEvent *) {
     int h = height();
 
     // 1. Background
-    p.fillRect(0, 0, w, h, QColor(24, 25, 30));
+    p.fillRect(0, 0, w, h, QColor(20, 22, 28));
 
     // 2. Time Ruler Background
-    p.fillRect(0, 0, w, RULER_HEIGHT, QColor(32, 34, 42));
-    p.setPen(QColor(50, 54, 66));
+    p.fillRect(0, 0, w, RULER_HEIGHT, QColor(28, 30, 38));
+    p.setPen(QColor(45, 48, 60));
     p.drawLine(0, RULER_HEIGHT, w, RULER_HEIGHT);
 
     // Time Ruler Ticks & Labels
@@ -207,7 +231,6 @@ void WaveformWidget::paintEvent(QPaintEvent *) {
         rulerFont.setPointSize(8);
         p.setFont(rulerFont);
 
-        // Determine sensible time intervals depending on duration and zoom
         double totalSec = m_durationMs / 1000.0;
         double visibleSec = totalSec / m_zoomFactor;
         double stepSec = 1.0;
@@ -219,44 +242,124 @@ void WaveformWidget::paintEvent(QPaintEvent *) {
             int x = msToX(static_cast<qint64>(sec * 1000));
             if (x < -50 || x > w + 50) continue;
 
-            p.setPen(QColor(100, 108, 125));
+            p.setPen(QColor(90, 98, 115));
             p.drawLine(x, RULER_HEIGHT - 6, x, RULER_HEIGHT);
 
             int minutes = static_cast<int>(sec) / 60;
             int seconds = static_cast<int>(sec) % 60;
             QString label = QString("%1:%2").arg(minutes, 2, 10, QChar('0')).arg(seconds, 2, 10, QChar('0'));
-            p.setPen(QColor(160, 168, 185));
+            p.setPen(QColor(150, 158, 175));
             p.drawText(x + 2, RULER_HEIGHT - 8, label);
         }
     }
 
-    // 3. Audio Waveform Body
+    // 3. Audio Visualization Body (Multi-mode)
     int waveTop = RULER_HEIGHT;
     int waveHeight = h - waveTop;
     int waveCenterY = waveTop + waveHeight / 2;
 
-    // Draw center zero line
-    p.setPen(QColor(40, 44, 54));
-    p.drawLine(0, waveCenterY, w, waveCenterY);
-
     if (!m_peaks.empty()) {
-        int totalPeaks = m_peaks.size();
-        float halfH = (waveHeight / 2.0f) * 0.9f;
+        int totalPixels = static_cast<int>(width() * m_zoomFactor);
 
-        for (int x = 0; x < w; ++x) {
-            int peakIdx = x + m_scrollOffsetPx;
-            if (peakIdx >= 0 && peakIdx < totalPeaks) {
-                const auto &pk = m_peaks[peakIdx];
-                int yMin = waveCenterY - static_cast<int>(pk.maxVal * halfH);
-                int yMax = waveCenterY - static_cast<int>(pk.minVal * halfH);
-                if (yMin == yMax) {
-                    yMin -= 1;
-                    yMax += 1;
+        // A. Amplitude peaks (for Waveform & CombinedStudio modes)
+        if (m_mode == WaveformMode::Waveform || m_mode == WaveformMode::CombinedStudio) {
+            p.setPen(QColor(38, 42, 54));
+            p.drawLine(0, waveCenterY, w, waveCenterY);
+
+            int totalPeaks = m_peaks.size();
+            float halfH = (waveHeight / 2.0f) * 0.88f;
+            QColor waveColor = (m_mode == WaveformMode::Waveform)
+                ? QColor(0, 190, 230) // vibrant cyan
+                : QColor(0, 160, 210, 100); // translucent cyan for master combined mode
+
+            for (int x = 0; x < w; ++x) {
+                int peakIdx = x + m_scrollOffsetPx;
+                if (peakIdx >= 0 && peakIdx < totalPeaks) {
+                    const auto &pk = m_peaks[peakIdx];
+                    int yMin = waveCenterY - static_cast<int>(pk.maxVal * halfH);
+                    int yMax = waveCenterY - static_cast<int>(pk.minVal * halfH);
+                    if (yMin == yMax) {
+                        yMin -= 1;
+                        yMax += 1;
+                    }
+                    p.setPen(waveColor);
+                    p.drawLine(x, yMin, x, yMax);
                 }
-
-                p.setPen(QColor(0, 180, 216)); // bright cyan
-                p.drawLine(x, yMin, x, yMax);
             }
+        }
+
+        // B. Speech Energy Envelope (in EnergyEnvelope mode)
+        if (m_mode == WaveformMode::EnergyEnvelope && !m_energyTrack.empty()) {
+            p.setRenderHint(QPainter::Antialiasing, false);
+            for (int x = 0; x < w; ++x) {
+                int realX = x + m_scrollOffsetPx;
+                if (totalPixels > 0) {
+                    size_t frameIdx = static_cast<size_t>((static_cast<double>(realX) / totalPixels) * m_energyTrack.size());
+                    if (frameIdx < m_energyTrack.size()) {
+                        float energy = m_energyTrack[frameIdx];
+                        int barH = static_cast<int>(energy * (waveHeight - 20));
+                        int yTop = waveTop + waveHeight - barH - 4;
+                        int yBot = waveTop + waveHeight - 4;
+
+                        QColor col = (energy > 0.6f) ? QColor(249, 115, 22)
+                                   : ((energy > 0.25f) ? QColor(6, 182, 212)
+                                                       : QColor(79, 70, 229));
+                        p.setPen(col);
+                        p.drawLine(x, yTop, x, yBot);
+                    }
+                }
+            }
+        }
+
+        // C. Pitch & Intonation Track (in PitchContour & CombinedStudio modes)
+        if ((m_mode == WaveformMode::PitchContour || m_mode == WaveformMode::CombinedStudio) && !m_pitchTrack.empty()) {
+            p.setRenderHint(QPainter::Antialiasing, true);
+
+            // Pitch reference lines in PitchContour mode
+            if (m_mode == WaveformMode::PitchContour) {
+                QFont gridFont = font();
+                gridFont.setPointSize(7);
+                p.setFont(gridFont);
+                int refHz[] = {100, 150, 200, 250, 300};
+                for (int hz : refHz) {
+                    float norm = (hz - 65.0f) / (350.0f - 65.0f);
+                    int y = waveTop + waveHeight - static_cast<int>(norm * (waveHeight - 24)) - 10;
+                    p.setPen(QColor(40, 46, 62));
+                    p.drawLine(0, y, w, y);
+                    p.setPen(QColor(100, 116, 139));
+                    p.drawText(w - 38, y - 2, QString("%1Hz").arg(hz));
+                }
+            }
+
+            QPainterPath pitchPath;
+            bool inPath = false;
+            float minF0 = 65.0f;
+            float maxF0 = 350.0f;
+
+            QPen pitchPen = (m_mode == WaveformMode::PitchContour)
+                ? QPen(QColor(251, 191, 36), 2.5) // Electric Yellow
+                : QPen(QColor(245, 158, 11), 2.0); // Golden Amber for Combined
+
+            for (size_t f = 0; f < m_pitchTrack.size(); ++f) {
+                float f0 = m_pitchTrack[f];
+                if (f0 > 55.0f) {
+                    double progress = static_cast<double>(f) / m_pitchTrack.size();
+                    int x = static_cast<int>(progress * totalPixels) - m_scrollOffsetPx;
+                    float norm = std::clamp((f0 - minF0) / (maxF0 - minF0), 0.0f, 1.0f);
+                    int y = waveTop + waveHeight - static_cast<int>(norm * (waveHeight - 24)) - 10;
+
+                    if (!inPath) {
+                        pitchPath.moveTo(x, y);
+                        inPath = true;
+                    } else {
+                        pitchPath.lineTo(x, y);
+                    }
+                } else {
+                    inPath = false;
+                }
+            }
+
+            p.strokePath(pitchPath, pitchPen);
         }
     } else {
         // Empty state message
@@ -265,7 +368,42 @@ void WaveformWidget::paintEvent(QPaintEvent *) {
         emptyFont.setPointSize(10);
         p.setFont(emptyFont);
         p.drawText(rect().adjusted(0, RULER_HEIGHT, 0, 0), Qt::AlignCenter,
-                   tr("No audio loaded. Record or open a session to view waveform."));
+                   tr("No audio loaded. Record or open a session to view waveform & speech intonation."));
+    }
+
+    // 4. Pronunciation & Intonation HUD Bar
+    if (m_durationMs > 0 && m_metrics.meanPitchHz > 0) {
+        p.setRenderHint(QPainter::Antialiasing, true);
+        QFont hudFont = font();
+        hudFont.setPointSize(8);
+        hudFont.setBold(true);
+        p.setFont(hudFont);
+
+        QString hudText = QString(
+            "🎵 Pitch: %1 Hz (%2-%3 Hz)  •  Intonation: %4  •  🗣️ Tempo: %5 WPM (%6)  •  Speech: %7% | Pauses: %8%  •  Peak: %9 dBFS"
+        )
+        .arg(static_cast<int>(m_metrics.meanPitchHz))
+        .arg(static_cast<int>(m_metrics.minPitchHz))
+        .arg(static_cast<int>(m_metrics.maxPitchHz))
+        .arg(m_metrics.intonationTrend)
+        .arg(m_metrics.wordsPerMinute)
+        .arg(m_metrics.tempoRating)
+        .arg(static_cast<int>(m_metrics.speechRatioPercent))
+        .arg(static_cast<int>(m_metrics.pauseRatioPercent))
+        .arg(m_metrics.peakDbfs, 0, 'f', 1);
+
+        QFontMetrics fm(hudFont);
+        int hudW = fm.horizontalAdvance(hudText) + 16;
+        int hudH = 18;
+        int hudX = std::max(6, (w - hudW) / 2);
+        int hudY = h - hudH - 3;
+
+        p.setBrush(QColor(15, 18, 28, 225));
+        p.setPen(QPen(QColor(45, 54, 78), 1));
+        p.drawRoundedRect(hudX, hudY, hudW, hudH, 4, 4);
+
+        p.setPen(QColor(226, 232, 240));
+        p.drawText(hudX, hudY, hudW, hudH, Qt::AlignCenter, hudText);
     }
 
     // 4. Segments Overlay

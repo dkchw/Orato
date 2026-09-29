@@ -116,7 +116,6 @@ private:
     void setupUi();
     void setupTopBar(QWidget *container);
     void setupWaveformArea(QWidget *container);
-    void setupBottomBar(QWidget *container);
     void setupSidebar(QWidget *container);
     void setupTtsStudioTab(QWidget *container);
     void setupModelManagerTab(QWidget *container);

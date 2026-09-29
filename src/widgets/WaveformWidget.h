@@ -14,11 +14,21 @@ public:
     explicit WaveformWidget(QWidget *parent = nullptr);
     ~WaveformWidget() override = default;
 
+    enum class WaveformMode {
+        Waveform,       // Classic amplitude waveform
+        PitchContour,   // F0 Intonation melody contour (Hz)
+        EnergyEnvelope, // Speech volume dynamics & stress (dB)
+        CombinedStudio  // Amplitude waveform + Pitch intonation overlay
+    };
+
     void setAudioData(const std::vector<float> &pcmSamples, qint64 durationMs);
     void setLiveAudioData(const std::vector<float> &pcmSamples, qint64 durationMs);
     void setSegments(const QList<AudioSegment> &segments);
     void setPlaybackPosition(qint64 positionMs);
     void setSelectedSegmentId(int segmentId);
+    void setMode(WaveformMode mode);
+    WaveformMode mode() const { return m_mode; }
+    const AudioUtils::SpeechMetrics& speechMetrics() const { return m_metrics; }
 
     qint64 duration() const { return m_durationMs; }
     qint64 position() const { return m_positionMs; }
@@ -28,6 +38,7 @@ public slots:
     void zoomIn();
     void zoomOut();
     void zoomFit();
+    void setWaveformMode(WaveformMode mode) { setMode(mode); }
 
 signals:
     void seekRequested(qint64 positionMs);
@@ -63,6 +74,11 @@ private:
 
     bool m_isDraggingPlayhead = false;
     int m_mouseX = -1;
+
+    WaveformMode m_mode = WaveformMode::CombinedStudio;
+    std::vector<float> m_pitchTrack;
+    std::vector<float> m_energyTrack;
+    AudioUtils::SpeechMetrics m_metrics;
 
     const int RULER_HEIGHT = 22;
 };

@@ -200,11 +200,6 @@ void MainWindow::setupUi() {
 
     studioLayout->addWidget(m_workspaceStack, 1);
 
-    // Bottom Bar (Full Playback Controls)
-    auto *bottomBarWidget = new QWidget(m_studioWidget);
-    setupBottomBar(bottomBarWidget);
-    studioLayout->addWidget(bottomBarWidget);
-
     m_mainSplitter->addWidget(m_studioWidget);
 
     // Default splitter proportions (Sidebar: 300px, Studio: 1020px)
@@ -754,128 +749,106 @@ void MainWindow::setupTopBar(QWidget *container) {
 void MainWindow::setupWaveformArea(QWidget *container) {
     auto *layout = new QVBoxLayout(container);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(2);
+    layout->setSpacing(3);
 
-    auto *topRow = new QHBoxLayout();
-    topRow->setContentsMargins(4, 0, 4, 0);
+    // =========================================================================
+    // Waveform Top Toolbar: Audio Playback Transport & Multi-Mode Speech Inspector
+    // =========================================================================
+    auto *toolbarWidget = new QWidget(container);
+    toolbarWidget->setStyleSheet(
+        "QWidget#waveformToolbar { background: #151822; border: 1px solid #282e42; border-radius: 7px; }"
+    );
+    toolbarWidget->setObjectName("waveformToolbar");
+    auto *toolbarLayout = new QHBoxLayout(toolbarWidget);
+    toolbarLayout->setContentsMargins(6, 3, 6, 3);
+    toolbarLayout->setSpacing(5);
 
-    auto *timelineTitle = new QLabel(tr("Timeline & Waveform"), container);
-    timelineTitle->setStyleSheet("font-size: 11px; font-weight: 700; color: #818cf8; letter-spacing: 0.5px;");
-    topRow->addWidget(timelineTitle);
-
-    topRow->addStretch();
-
-    auto *zoomInBtn = new QPushButton(container);
-    zoomInBtn->setIcon(QIcon(":/icons/zoom-in.svg"));
-    zoomInBtn->setToolTip(tr("Zoom In [Ctrl + Mouse Wheel]"));
-    zoomInBtn->setFixedSize(26, 24);
-    connect(zoomInBtn, &QPushButton::clicked, this, [this]() { m_waveformWidget->zoomIn(); });
-    topRow->addWidget(zoomInBtn);
-
-    auto *zoomOutBtn = new QPushButton(container);
-    zoomOutBtn->setIcon(QIcon(":/icons/zoom-out.svg"));
-    zoomOutBtn->setToolTip(tr("Zoom Out"));
-    zoomOutBtn->setFixedSize(26, 24);
-    connect(zoomOutBtn, &QPushButton::clicked, this, [this]() { m_waveformWidget->zoomOut(); });
-    topRow->addWidget(zoomOutBtn);
-
-    auto *zoomFitBtn = new QPushButton(container);
-    zoomFitBtn->setIcon(QIcon(":/icons/maximize-2.svg"));
-    zoomFitBtn->setToolTip(tr("Fit Waveform to Window"));
-    zoomFitBtn->setFixedSize(26, 24);
-    connect(zoomFitBtn, &QPushButton::clicked, this, [this]() { m_waveformWidget->zoomFit(); });
-    topRow->addWidget(zoomFitBtn);
-
-    layout->addLayout(topRow);
-
-    m_waveformWidget = new WaveformWidget(container);
-    connect(m_waveformWidget, &WaveformWidget::seekRequested, this, &MainWindow::onTimelineSeekRequested);
-    connect(m_waveformWidget, &WaveformWidget::segmentClicked, this, &MainWindow::onTimelineSegmentClicked);
-    connect(m_waveformWidget, &WaveformWidget::segmentDoubleClicked, this, &MainWindow::onTimelineSegmentDoubleClicked);
-
-    layout->addWidget(m_waveformWidget);
-}
-
-void MainWindow::setupBottomBar(QWidget *container) {
-    auto *layout = new QVBoxLayout(container);
-    layout->setContentsMargins(4, 2, 4, 4);
-    layout->setSpacing(4);
-
-    // Scrubber slider row
-    auto *sliderRow = new QHBoxLayout();
-    m_timelineSlider = new QSlider(Qt::Horizontal, container);
-    m_timelineSlider->setRange(0, 1000);
-    connect(m_timelineSlider, &QSlider::sliderMoved, this, [this](int val) {
-        qint64 dur = m_player->duration();
-        if (dur > 0) {
-            qint64 targetMs = (val * dur) / 1000;
-            m_player->seek(targetMs);
-        }
-    });
-    sliderRow->addWidget(m_timelineSlider, 1);
-
-    m_playbackTimeLabel = new QLabel("00:00.0 / 00:00.0", container);
-    m_playbackTimeLabel->setStyleSheet("font-family: monospace; font-size: 12px; color: #94a3b8;");
-    sliderRow->addWidget(m_playbackTimeLabel);
-
-    layout->addLayout(sliderRow);
-
-    // Playback buttons
-    auto *ctrlRow = new QHBoxLayout();
-    ctrlRow->setSpacing(4);
-
-    m_playBtn = new QPushButton(tr("Play"), container);
+    // 1. Play / Pause & Stop Controls
+    m_playBtn = new QPushButton(tr("Play"), toolbarWidget);
     m_playBtn->setIcon(QIcon(":/icons/play.svg"));
-    m_playBtn->setStyleSheet("background-color: #059669; color: white; font-weight: 600; min-width: 65px; padding: 4px 8px;");
+    m_playBtn->setStyleSheet(
+        "QPushButton { background-color: #059669; color: white; font-weight: 700; min-width: 60px; padding: 4px 10px; font-size: 11px; border-radius: 4px; } "
+        "QPushButton:hover { background-color: #10b981; }"
+    );
     connect(m_playBtn, &QPushButton::clicked, this, &MainWindow::onPlayToggle);
-    ctrlRow->addWidget(m_playBtn);
+    toolbarLayout->addWidget(m_playBtn);
 
-    m_stopBtn = new QPushButton(container);
+    m_stopBtn = new QPushButton(toolbarWidget);
     m_stopBtn->setIcon(QIcon(":/icons/stop.svg"));
     m_stopBtn->setToolTip(tr("Stop playback"));
-    m_stopBtn->setFixedSize(28, 28);
+    m_stopBtn->setFixedSize(26, 26);
     connect(m_stopBtn, &QPushButton::clicked, this, &MainWindow::onStop);
-    ctrlRow->addWidget(m_stopBtn);
+    toolbarLayout->addWidget(m_stopBtn);
 
-    m_skipBackBtn = new QPushButton(tr("-5s"), container);
+    m_skipBackBtn = new QPushButton(tr("-5s"), toolbarWidget);
     m_skipBackBtn->setIcon(QIcon(":/icons/skip-back.svg"));
     m_skipBackBtn->setToolTip(tr("Skip backward 5s"));
-    m_skipBackBtn->setStyleSheet("padding: 4px 6px;");
+    m_skipBackBtn->setStyleSheet("padding: 3px 6px; font-size: 11px; min-height: 24px;");
     connect(m_skipBackBtn, &QPushButton::clicked, this, [this]() { m_player->skipBackward(5000); });
-    ctrlRow->addWidget(m_skipBackBtn);
+    toolbarLayout->addWidget(m_skipBackBtn);
 
-    m_skipForwardBtn = new QPushButton(tr("+5s"), container);
+    m_skipForwardBtn = new QPushButton(tr("+5s"), toolbarWidget);
     m_skipForwardBtn->setIcon(QIcon(":/icons/skip-forward.svg"));
     m_skipForwardBtn->setToolTip(tr("Skip forward 5s"));
-    m_skipForwardBtn->setStyleSheet("padding: 4px 6px;");
+    m_skipForwardBtn->setStyleSheet("padding: 3px 6px; font-size: 11px; min-height: 24px;");
     connect(m_skipForwardBtn, &QPushButton::clicked, this, [this]() { m_player->skipForward(5000); });
-    ctrlRow->addWidget(m_skipForwardBtn);
+    toolbarLayout->addWidget(m_skipForwardBtn);
 
-    ctrlRow->addSpacing(6);
-
-    m_replaySentenceBtn = new QPushButton(tr("Replay [R]"), container);
+    m_replaySentenceBtn = new QPushButton(tr("Replay [R]"), toolbarWidget);
     m_replaySentenceBtn->setIcon(QIcon(":/icons/replay.svg"));
     m_replaySentenceBtn->setToolTip(tr("Replay currently selected sentence [R]"));
-    m_replaySentenceBtn->setStyleSheet("background-color: #4338ca; color: white; font-weight: 600; padding: 4px 8px;");
+    m_replaySentenceBtn->setStyleSheet(
+        "QPushButton { background-color: #4338ca; color: white; font-weight: 600; padding: 3px 8px; font-size: 11px; min-height: 24px; border-radius: 4px; } "
+        "QPushButton:hover { background-color: #4f46e5; }"
+    );
     connect(m_replaySentenceBtn, &QPushButton::clicked, this, &MainWindow::onReplayCurrentSentence);
-    ctrlRow->addWidget(m_replaySentenceBtn);
+    toolbarLayout->addWidget(m_replaySentenceBtn);
 
-    m_loopSentenceBtn = new QPushButton(tr("Loop"), container);
+    m_loopSentenceBtn = new QPushButton(tr("Loop"), toolbarWidget);
     m_loopSentenceBtn->setIcon(QIcon(":/icons/loop.svg"));
     m_loopSentenceBtn->setToolTip(tr("Loop currently selected sentence continuously"));
     m_loopSentenceBtn->setCheckable(true);
-    m_loopSentenceBtn->setStyleSheet("padding: 4px 8px;");
+    m_loopSentenceBtn->setStyleSheet("padding: 3px 8px; font-size: 11px; min-height: 24px; border-radius: 4px;");
     connect(m_loopSentenceBtn, &QPushButton::toggled, this, &MainWindow::onLoopSentenceToggle);
-    ctrlRow->addWidget(m_loopSentenceBtn);
+    toolbarLayout->addWidget(m_loopSentenceBtn);
 
-    ctrlRow->addStretch();
+    m_playbackTimeLabel = new QLabel("00:00.0 / 00:00.0", toolbarWidget);
+    m_playbackTimeLabel->setStyleSheet("font-family: monospace; font-size: 11px; color: #a5b4fc; font-weight: 600; background: #1c1f2e; border: 1px solid #2d3450; border-radius: 4px; padding: 2px 7px;");
+    toolbarLayout->addWidget(m_playbackTimeLabel);
 
-    // Speed Selector
-    auto *speedLbl = new QLabel(tr("Speed:"), container);
+    // Separator
+    auto *sep1 = new QFrame(toolbarWidget);
+    sep1->setFrameShape(QFrame::VLine);
+    sep1->setStyleSheet("color: #2b3348;");
+    toolbarLayout->addWidget(sep1);
+
+    // 2. Waveform Visualization Mode Switcher
+    auto *modeLbl = new QLabel(tr("Mode:"), toolbarWidget);
+    modeLbl->setStyleSheet("font-size: 11px; color: #94a3b8; font-weight: 500;");
+    toolbarLayout->addWidget(modeLbl);
+
+    auto *modeCombo = new QComboBox(toolbarWidget);
+    modeCombo->addItem(tr("🌊 Waveform"), static_cast<int>(WaveformWidget::WaveformMode::Waveform));
+    modeCombo->addItem(tr("🎵 Pitch / Intonation (F0)"), static_cast<int>(WaveformWidget::WaveformMode::PitchContour));
+    modeCombo->addItem(tr("⚡ Speech Energy (dB)"), static_cast<int>(WaveformWidget::WaveformMode::EnergyEnvelope));
+    modeCombo->addItem(tr("✨ Master Speech (Combined)"), static_cast<int>(WaveformWidget::WaveformMode::CombinedStudio));
+    modeCombo->setCurrentIndex(3); // Default to Master Speech Combined View
+    modeCombo->setMinimumWidth(165);
+    modeCombo->setToolTip(tr("Select waveform visualization mode (Waveform, Pitch Melody/Intonation, Energy Dynamics, or Master Speech)"));
+    connect(modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this, modeCombo](int idx) {
+        auto mode = static_cast<WaveformWidget::WaveformMode>(modeCombo->itemData(idx).toInt());
+        m_waveformWidget->setMode(mode);
+    });
+    toolbarLayout->addWidget(modeCombo);
+
+    toolbarLayout->addStretch();
+
+    // 3. Playback Speed Selector
+    auto *speedLbl = new QLabel(tr("Speed:"), toolbarWidget);
     speedLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
-    ctrlRow->addWidget(speedLbl);
+    toolbarLayout->addWidget(speedLbl);
 
-    m_speedCombo = new QComboBox(container);
+    m_speedCombo = new QComboBox(toolbarWidget);
     m_speedCombo->addItem("0.5x", 0.5);
     m_speedCombo->addItem("0.75x", 0.75);
     m_speedCombo->addItem("1.0x", 1.0);
@@ -883,28 +856,61 @@ void MainWindow::setupBottomBar(QWidget *container) {
     m_speedCombo->addItem("1.5x", 1.5);
     m_speedCombo->addItem("2.0x", 2.0);
     m_speedCombo->setCurrentIndex(2); // 1.0x
-    m_speedCombo->setFixedWidth(68);
+    m_speedCombo->setFixedWidth(64);
     connect(m_speedCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onSpeedChanged);
-    ctrlRow->addWidget(m_speedCombo);
+    toolbarLayout->addWidget(m_speedCombo);
 
-    ctrlRow->addSpacing(6);
-
-    // Volume & Mute
-    m_muteBtn = new QPushButton(container);
+    // 4. Volume & Mute
+    m_muteBtn = new QPushButton(toolbarWidget);
     m_muteBtn->setIcon(QIcon(":/icons/volume.svg"));
-    m_muteBtn->setFixedSize(28, 28);
+    m_muteBtn->setFixedSize(26, 26);
     connect(m_muteBtn, &QPushButton::clicked, this, &MainWindow::onMuteToggle);
-    ctrlRow->addWidget(m_muteBtn);
+    toolbarLayout->addWidget(m_muteBtn);
 
-    m_volumeSlider = new QSlider(Qt::Horizontal, container);
+    m_volumeSlider = new QSlider(Qt::Horizontal, toolbarWidget);
     m_volumeSlider->setRange(0, 100);
     m_volumeSlider->setValue(100);
-    m_volumeSlider->setFixedWidth(65);
+    m_volumeSlider->setFixedWidth(55);
     connect(m_volumeSlider, &QSlider::valueChanged, this, &MainWindow::onVolumeSliderChanged);
-    ctrlRow->addWidget(m_volumeSlider);
+    toolbarLayout->addWidget(m_volumeSlider);
 
-    layout->addLayout(ctrlRow);
+    // Separator
+    auto *sep2 = new QFrame(toolbarWidget);
+    sep2->setFrameShape(QFrame::VLine);
+    sep2->setStyleSheet("color: #2b3348;");
+    toolbarLayout->addWidget(sep2);
+
+    // 5. Zoom Controls
+    auto *zoomInBtn = new QPushButton(toolbarWidget);
+    zoomInBtn->setIcon(QIcon(":/icons/zoom-in.svg"));
+    zoomInBtn->setToolTip(tr("Zoom In [Ctrl + Mouse Wheel]"));
+    zoomInBtn->setFixedSize(26, 24);
+    connect(zoomInBtn, &QPushButton::clicked, this, [this]() { m_waveformWidget->zoomIn(); });
+    toolbarLayout->addWidget(zoomInBtn);
+
+    auto *zoomOutBtn = new QPushButton(toolbarWidget);
+    zoomOutBtn->setIcon(QIcon(":/icons/zoom-out.svg"));
+    zoomOutBtn->setToolTip(tr("Zoom Out"));
+    zoomOutBtn->setFixedSize(26, 24);
+    connect(zoomOutBtn, &QPushButton::clicked, this, [this]() { m_waveformWidget->zoomOut(); });
+    toolbarLayout->addWidget(zoomOutBtn);
+
+    auto *zoomFitBtn = new QPushButton(toolbarWidget);
+    zoomFitBtn->setIcon(QIcon(":/icons/maximize-2.svg"));
+    zoomFitBtn->setToolTip(tr("Fit Waveform to Window"));
+    zoomFitBtn->setFixedSize(26, 24);
+    connect(zoomFitBtn, &QPushButton::clicked, this, [this]() { m_waveformWidget->zoomFit(); });
+    toolbarLayout->addWidget(zoomFitBtn);
+
+    layout->addWidget(toolbarWidget);
+
+    // 6. Waveform Canvas
+    m_waveformWidget = new WaveformWidget(container);
+    connect(m_waveformWidget, &WaveformWidget::seekRequested, this, &MainWindow::onTimelineSeekRequested);
+    connect(m_waveformWidget, &WaveformWidget::segmentClicked, this, &MainWindow::onTimelineSegmentClicked);
+    connect(m_waveformWidget, &WaveformWidget::segmentDoubleClicked, this, &MainWindow::onTimelineSegmentDoubleClicked);
+    layout->addWidget(m_waveformWidget);
 }
 
 void MainWindow::setupTtsStudioTab(QWidget *container) {
@@ -1371,7 +1377,7 @@ void MainWindow::onPlaybackPositionChanged(qint64 ms) {
     m_sentenceListView->updatePlaybackPosition(ms);
 
     qint64 dur = m_player->duration();
-    if (dur > 0) {
+    if (dur > 0 && m_timelineSlider) {
         int sliderVal = static_cast<int>((ms * 1000) / dur);
         m_timelineSlider->blockSignals(true);
         m_timelineSlider->setValue(sliderVal);
