@@ -198,7 +198,8 @@ private:
     QListWidget *m_sessionListWidget = nullptr;
     QLineEdit *m_sessionTitleEdit = nullptr;
 
-    // Playback Controls
+    // Playback & Waveform Controls
+    QWidget *m_waveformToolbar = nullptr;
     QPushButton *m_playBtn = nullptr;
     QPushButton *m_stopBtn = nullptr;
     QPushButton *m_replaySentenceBtn = nullptr;
@@ -207,6 +208,10 @@ private:
     QPushButton *m_skipForwardBtn = nullptr;
     QSlider *m_timelineSlider = nullptr;
     QLabel *m_playbackTimeLabel = nullptr;
+    QComboBox *m_waveformClickModeCombo = nullptr;
+    QPushButton *m_replayRangeBtn = nullptr;
+    QPushButton *m_loopRangeBtn = nullptr;
+    QPushButton *m_clearRangeBtn = nullptr;
     QComboBox *m_speedCombo = nullptr;
     QSlider *m_volumeSlider = nullptr;
     QPushButton *m_muteBtn = nullptr;

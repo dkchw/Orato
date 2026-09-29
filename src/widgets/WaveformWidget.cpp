@@ -2,6 +2,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QMouseEvent>
+#include <QKeyEvent>
 #include <QWheelEvent>
 #include <QToolTip>
 #include <cmath>
@@ -11,6 +12,7 @@ WaveformWidget::WaveformWidget(QWidget *parent)
     : QWidget(parent) {
     setMinimumHeight(125);
     setMouseTracking(true);
+    setFocusPolicy(Qt::StrongFocus);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 }
 
@@ -20,6 +22,7 @@ void WaveformWidget::setAudioData(const std::vector<float> &pcmSamples, qint64 d
     m_positionMs = 0;
     m_zoomFactor = 1.0;
     m_scrollOffsetPx = 0;
+    clearSelection();
 
     recomputePeaks();
     update();
@@ -29,6 +32,7 @@ void WaveformWidget::setLiveAudioData(const std::vector<float> &pcmSamples, qint
     m_pcmSamples = pcmSamples;
     m_durationMs = durationMs;
     m_positionMs = durationMs;
+    clearSelection();
 
     recomputePeaks();
     update();
@@ -143,20 +147,73 @@ int WaveformWidget::findSegmentAtX(int x) const {
     return -1;
 }
 
-void WaveformWidget::mousePressEvent(QMouseEvent *event) {
-    if (event->button() == Qt::LeftButton) {
-        m_isDraggingPlayhead = true;
-        qint64 ms = xToMs(event->pos().x());
-        emit seekRequested(ms);
+void WaveformWidget::setSelection(qint64 startMs, qint64 endMs) {
+    if (startMs >= endMs || m_durationMs <= 0) {
+        clearSelection();
+        return;
+    }
+    m_selectionStartMs = std::max<qint64>(0, startMs);
+    m_selectionEndMs = std::min<qint64>(m_durationMs, endMs);
+    m_hasSelection = true;
+    emit rangeSelected(m_selectionStartMs, m_selectionEndMs);
+    update();
+}
 
-        int segId = findSegmentAtX(event->pos().x());
-        if (segId != -1) {
-            for (const auto &seg : m_segments) {
-                if (seg.id == segId) {
-                    emit segmentClicked(seg.id, seg.startMs, seg.endMs);
-                    break;
-                }
+void WaveformWidget::clearSelection() {
+    if (m_hasSelection) {
+        m_hasSelection = false;
+        m_selectionStartMs = 0;
+        m_selectionEndMs = 0;
+        emit selectionCleared();
+        update();
+    }
+}
+
+void WaveformWidget::keyPressEvent(QKeyEvent *event) {
+    if (event->key() == Qt::Key_Escape && m_hasSelection) {
+        clearSelection();
+        event->accept();
+        return;
+    }
+    QWidget::keyPressEvent(event);
+}
+
+void WaveformWidget::mousePressEvent(QMouseEvent *event) {
+    if (event->button() == Qt::RightButton) {
+        if (m_hasSelection) {
+            clearSelection();
+            return;
+        }
+    }
+
+    if (event->button() == Qt::LeftButton) {
+        m_isMouseDown = true;
+        m_isDragging = false;
+        m_dragStartPos = event->pos();
+
+        // 1. Scrubbing Time Ruler at top
+        if (event->pos().y() <= RULER_HEIGHT) {
+            m_dragMode = DragMode::ScrubbingRuler;
+            qint64 ms = xToMs(event->pos().x());
+            emit seekRequested(ms);
+            return;
+        }
+
+        // 2. Selection Handles / Inside Selection Detection
+        if (m_hasSelection) {
+            int leftX = msToX(m_selectionStartMs);
+            int rightX = msToX(m_selectionEndMs);
+            if (std::abs(event->pos().x() - leftX) <= 6) {
+                m_dragMode = DragMode::ResizeSelectionLeft;
+            } else if (std::abs(event->pos().x() - rightX) <= 6) {
+                m_dragMode = DragMode::ResizeSelectionRight;
+            } else if (event->pos().x() > leftX && event->pos().x() < rightX) {
+                m_dragMode = DragMode::InsideSelection;
+            } else {
+                m_dragMode = DragMode::None;
             }
+        } else {
+            m_dragMode = DragMode::None;
         }
     }
 }
@@ -164,21 +221,131 @@ void WaveformWidget::mousePressEvent(QMouseEvent *event) {
 void WaveformWidget::mouseMoveEvent(QMouseEvent *event) {
     m_mouseX = event->pos().x();
 
-    if (m_isDraggingPlayhead) {
-        qint64 ms = xToMs(m_mouseX);
-        emit seekRequested(ms);
+    if (!m_isMouseDown) {
+        // Dynamic cursor shape for handles and selection
+        if (m_hasSelection) {
+            int leftX = msToX(m_selectionStartMs);
+            int rightX = msToX(m_selectionEndMs);
+            if (std::abs(m_mouseX - leftX) <= 6 || std::abs(m_mouseX - rightX) <= 6) {
+                setCursor(Qt::SizeHorCursor);
+            } else if (m_mouseX > leftX && m_mouseX < rightX) {
+                setCursor(Qt::PointingHandCursor);
+            } else {
+                setCursor(Qt::CrossCursor);
+            }
+        } else {
+            setCursor(Qt::CrossCursor);
+        }
+
+        int segId = findSegmentAtX(m_mouseX);
+        if (segId != m_hoveredSegmentId) {
+            m_hoveredSegmentId = segId;
+        }
+        update();
+        return;
     }
 
-    int segId = findSegmentAtX(m_mouseX);
-    if (segId != m_hoveredSegmentId) {
-        m_hoveredSegmentId = segId;
+    // Scrubbing via Time Ruler
+    if (m_dragMode == DragMode::ScrubbingRuler) {
+        qint64 ms = xToMs(m_mouseX);
+        emit seekRequested(ms);
+        update();
+        return;
     }
-    update();
+
+    // Detect drag threshold (5 pixels)
+    int dx = event->pos().x() - m_dragStartPos.x();
+    if (!m_isDragging && std::abs(dx) > 5) {
+        m_isDragging = true;
+        if (m_dragMode == DragMode::None || m_dragMode == DragMode::InsideSelection) {
+            m_dragMode = DragMode::SelectingRange;
+        }
+    }
+
+    if (m_isDragging) {
+        if (m_dragMode == DragMode::SelectingRange) {
+            qint64 t1 = xToMs(m_dragStartPos.x());
+            qint64 t2 = xToMs(event->pos().x());
+            m_selectionStartMs = std::max<qint64>(0, std::min(t1, t2));
+            m_selectionEndMs = std::min<qint64>(m_durationMs, std::max(t1, t2));
+            m_hasSelection = (m_selectionEndMs > m_selectionStartMs + 25);
+            if (m_hasSelection) {
+                emit rangeSelected(m_selectionStartMs, m_selectionEndMs);
+            }
+            update();
+        } else if (m_dragMode == DragMode::ResizeSelectionLeft) {
+            qint64 newStart = xToMs(event->pos().x());
+            newStart = std::max<qint64>(0, std::min(newStart, m_selectionEndMs - 25));
+            m_selectionStartMs = newStart;
+            emit rangeSelected(m_selectionStartMs, m_selectionEndMs);
+            update();
+        } else if (m_dragMode == DragMode::ResizeSelectionRight) {
+            qint64 newEnd = xToMs(event->pos().x());
+            newEnd = std::min<qint64>(m_durationMs, std::max(newEnd, m_selectionStartMs + 25));
+            m_selectionEndMs = newEnd;
+            emit rangeSelected(m_selectionStartMs, m_selectionEndMs);
+            update();
+        }
+    }
 }
 
 void WaveformWidget::mouseReleaseEvent(QMouseEvent *event) {
     if (event->button() == Qt::LeftButton) {
-        m_isDraggingPlayhead = false;
+        if (m_dragMode == DragMode::ScrubbingRuler) {
+            m_dragMode = DragMode::None;
+            m_isMouseDown = false;
+            m_isDragging = false;
+            return;
+        }
+
+        if (m_isDragging) {
+            // Drag completed
+            if (m_hasSelection && (m_selectionEndMs - m_selectionStartMs >= 25)) {
+                emit rangeSelected(m_selectionStartMs, m_selectionEndMs);
+            } else {
+                clearSelection();
+            }
+        } else {
+            // Pure Click (not a drag)
+            if (m_hasSelection && m_dragMode == DragMode::InsideSelection) {
+                // Replay selected range!
+                emit playRangeRequested(m_selectionStartMs, m_selectionEndMs);
+            } else {
+                if (m_hasSelection) {
+                    clearSelection();
+                }
+
+                qint64 clickedMs = xToMs(event->pos().x());
+                int segId = findSegmentAtX(event->pos().x());
+                if (segId != -1) {
+                    for (const auto &seg : m_segments) {
+                        if (seg.id == segId) {
+                            emit segmentClicked(seg.id, seg.startMs, seg.endMs);
+                            break;
+                        }
+                    }
+                }
+
+                switch (m_clickMode) {
+                    case ClickMode::PlayFromClick:
+                        emit seekRequested(clickedMs);
+                        emit playRequested(clickedMs);
+                        break;
+                    case ClickMode::PreviewSnippet:
+                        emit seekRequested(clickedMs);
+                        emit previewRequested(clickedMs, m_previewDurationMs);
+                        break;
+                    case ClickMode::SeekOnly:
+                        emit seekRequested(clickedMs);
+                        break;
+                }
+            }
+        }
+
+        m_isMouseDown = false;
+        m_isDragging = false;
+        m_dragMode = DragMode::None;
+        update();
     }
 }
 
@@ -189,10 +356,19 @@ void WaveformWidget::mouseDoubleClickEvent(QMouseEvent *event) {
             for (const auto &seg : m_segments) {
                 if (seg.id == segId) {
                     emit segmentDoubleClicked(seg.id, seg.startMs, seg.endMs);
-                    break;
+                    return;
                 }
             }
         }
+
+        if (m_hasSelection) {
+            emit playRangeRequested(m_selectionStartMs, m_selectionEndMs);
+            return;
+        }
+
+        qint64 clickedMs = xToMs(event->pos().x());
+        emit seekRequested(clickedMs);
+        emit playRequested(clickedMs);
     }
 }
 
@@ -438,7 +614,58 @@ void WaveformWidget::paintEvent(QPaintEvent *) {
         p.drawText(x0 + 4, waveTop + 14, badge);
     }
 
-    // 5. Playhead Line and Badge
+    // 5. Active Range Selection Overlay
+    if (m_hasSelection && m_durationMs > 0) {
+        int x0 = msToX(m_selectionStartMs);
+        int x1 = msToX(m_selectionEndMs);
+        int selW = std::max(2, x1 - x0);
+
+        if (x1 >= 0 && x0 <= w) {
+            p.setRenderHint(QPainter::Antialiasing, true);
+
+            // Shaded range background
+            p.fillRect(x0, waveTop, selW, waveHeight, QColor(245, 158, 11, 45));
+
+            // Top and bottom borders
+            p.setPen(QPen(QColor(245, 158, 11, 140), 1));
+            p.drawLine(x0, waveTop, x1, waveTop);
+            p.drawLine(x0, h - 1, x1, h - 1);
+
+            // Left & Right boundary lines
+            p.setPen(QPen(QColor(245, 158, 11, 230), 2));
+            p.drawLine(x0, waveTop, x0, h);
+            p.drawLine(x1, waveTop, x1, h);
+
+            // Boundary grab handles
+            p.setBrush(QColor(245, 158, 11));
+            p.setPen(Qt::NoPen);
+            p.drawRoundedRect(x0 - 3, waveTop + 3, 6, 14, 2, 2);
+            p.drawRoundedRect(x1 - 3, waveTop + 3, 6, 14, 2, 2);
+
+            // Duration Pill Badge
+            double durSec = (m_selectionEndMs - m_selectionStartMs) / 1000.0;
+            QString badgeText = QString("▶ %1s").arg(durSec, 0, 'f', 2);
+            QFont badgeFont = font();
+            badgeFont.setPointSize(8);
+            badgeFont.setBold(true);
+            p.setFont(badgeFont);
+
+            QFontMetrics fm(badgeFont);
+            int bw = fm.horizontalAdvance(badgeText) + 14;
+            int bh = 18;
+            int bx = std::max(x0 + 2, std::min(x1 - bw - 2, (x0 + x1 - bw) / 2));
+            int by = waveTop + 4;
+
+            p.setBrush(QColor(217, 119, 6, 230));
+            p.setPen(QPen(QColor(251, 191, 36), 1));
+            p.drawRoundedRect(bx, by, bw, bh, 4, 4);
+
+            p.setPen(Qt::white);
+            p.drawText(bx, by, bw, bh, Qt::AlignCenter, badgeText);
+        }
+    }
+
+    // 6. Playhead Line and Badge
     if (m_durationMs > 0) {
         int playheadX = msToX(m_positionMs);
         if (playheadX >= 0 && playheadX <= w) {
@@ -475,8 +702,8 @@ void WaveformWidget::paintEvent(QPaintEvent *) {
         }
     }
 
-    // 6. Hover cursor line
-    if (m_mouseX >= 0 && m_mouseX <= w && !m_isDraggingPlayhead) {
+    // 7. Hover cursor line
+    if (m_mouseX >= 0 && m_mouseX <= w && !m_isMouseDown) {
         p.setPen(QPen(QColor(255, 255, 255, 60), 1, Qt::DashLine));
         p.drawLine(m_mouseX, 0, m_mouseX, h);
     }
