@@ -272,6 +272,30 @@ void ModelManager::addCustomModel(const QString &filePath) {
     refreshInstalledModels();
 }
 
+bool ModelManager::removeModel(const QString &filePathOrName) {
+    QString fullPath = filePathOrName;
+    if (!QFile::exists(fullPath)) {
+        fullPath = modelsDirectory() + "/" + filePathOrName;
+    }
+    if (QFile::exists(fullPath)) {
+        bool ok = QFile::remove(fullPath);
+        if (ok) {
+            refreshInstalledModels();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ModelManager::deletePresetModel(const QString &presetId) {
+    for (const auto &p : m_presets) {
+        if (p.id == presetId) {
+            return removeModel(p.fileName);
+        }
+    }
+    return false;
+}
+
 void ModelManager::convertHuggingFaceModel(const QString &hfModelIdOrUrl) {
     QString modelId = hfModelIdOrUrl;
     if (modelId.startsWith("https://huggingface.co/")) {

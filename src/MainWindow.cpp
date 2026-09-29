@@ -14,6 +14,9 @@
 #include <QUrl>
 #include <QDir>
 #include <QDebug>
+#include "widgets/ModelManagerDialog.h"
+#include "widgets/ConfigDialog.h"
+#include "widgets/SessionItemDelegate.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent) {
@@ -78,6 +81,24 @@ MainWindow::MainWindow(QWidget *parent)
     refreshModelList();
     updateSessionList();
 
+    // Background Model Preloading (Zero Cold Start)
+    QString defaultModelPath;
+    for (const auto &p : m_modelManager->presetModels()) {
+        if (m_modelManager->isModelInstalled(p.id)) {
+            defaultModelPath = m_modelManager->getModelPath(p.id);
+            break;
+        }
+    }
+    if (defaultModelPath.isEmpty()) {
+        auto models = m_modelManager->installedModels();
+        if (!models.isEmpty()) {
+            defaultModelPath = models.first().filePath;
+        }
+    }
+    if (!defaultModelPath.isEmpty()) {
+        m_whisper->preloadModel(defaultModelPath);
+    }
+
     // Load initial session
     auto sessions = m_sessionManager->listSessions();
     if (!sessions.isEmpty()) {
@@ -86,7 +107,7 @@ MainWindow::MainWindow(QWidget *parent)
         onNewSession();
     }
 
-    statusBar()->showMessage(tr("Ready. Choose audio input source and record, or review notes and sentences."));
+    statusBar()->showMessage(tr("Ready. Whisper & Pocket TTS preloaded."));
 }
 
 void MainWindow::setupUi() {
@@ -99,31 +120,34 @@ void MainWindow::setupUi() {
 
     // Resizable Main Splitter (Left Sidebar + Right Studio)
     m_mainSplitter = new QSplitter(Qt::Horizontal, centralWidget);
-    m_mainSplitter->setChildrenCollapsible(true);
+    m_mainSplitter->setChildrenCollapsible(false); // Smooth, continuous resizing without snapping to 0
+    m_mainSplitter->setHandleWidth(6);
 
-    // 1. Left Sidebar
+    // 1. Sidebar (Sessions panel)
     m_sidebarWidget = new QWidget(m_mainSplitter);
+    m_sidebarWidget->setMinimumWidth(220);
     setupSidebar(m_sidebarWidget);
     m_mainSplitter->addWidget(m_sidebarWidget);
 
     // 2. Right Studio Area
-    auto *studioWidget = new QWidget(m_mainSplitter);
-    auto *studioLayout = new QVBoxLayout(studioWidget);
+    m_studioWidget = new QWidget(m_mainSplitter);
+    m_studioWidget->setMinimumWidth(450);
+    auto *studioLayout = new QVBoxLayout(m_studioWidget);
     studioLayout->setContentsMargins(6, 4, 4, 4);
     studioLayout->setSpacing(6);
 
     // Top Bar (Recording + STT controls)
-    auto *topBarWidget = new QWidget(studioWidget);
+    auto *topBarWidget = new QWidget(m_studioWidget);
     setupTopBar(topBarWidget);
     studioLayout->addWidget(topBarWidget);
 
     // Waveform Timeline Area
-    auto *waveformContainer = new QWidget(studioWidget);
+    auto *waveformContainer = new QWidget(m_studioWidget);
     setupWaveformArea(waveformContainer);
     studioLayout->addWidget(waveformContainer);
 
     // Workspace Area: Stacked widget containing Splitter mode (Note + Transcript) or Tabs mode
-    m_workspaceStack = new QStackedWidget(studioWidget);
+    m_workspaceStack = new QStackedWidget(m_studioWidget);
 
     // Sub-components: Note Editor & Sentence List
     m_noteEditor = new MarkdownNoteEditor(this);
@@ -173,14 +197,14 @@ void MainWindow::setupUi() {
     studioLayout->addWidget(m_workspaceStack, 1);
 
     // Bottom Bar (Full Playback Controls)
-    auto *bottomBarWidget = new QWidget(studioWidget);
+    auto *bottomBarWidget = new QWidget(m_studioWidget);
     setupBottomBar(bottomBarWidget);
     studioLayout->addWidget(bottomBarWidget);
 
-    m_mainSplitter->addWidget(studioWidget);
+    m_mainSplitter->addWidget(m_studioWidget);
 
-    // Default splitter proportions (Sidebar: 260px, Studio: 1040px)
-    m_mainSplitter->setSizes({260, 1060});
+    // Default splitter proportions (Sidebar: 300px, Studio: 1020px)
+    m_mainSplitter->setSizes({300, 1020});
 
     mainLayout->addWidget(m_mainSplitter);
 
@@ -188,6 +212,11 @@ void MainWindow::setupUi() {
     connect(m_recorder, &AudioRecorder::durationChanged, this, &MainWindow::onRecordingDurationChanged);
     connect(m_recorder, &AudioRecorder::levelChanged, m_levelMeter, &AudioLevelMeter::setLevels);
     connect(m_recorder, &AudioRecorder::recordingFinished, this, &MainWindow::onRecordingFinished);
+    connect(m_recorder, &AudioRecorder::liveAudioUpdated, this, [this](const std::vector<float> &liveSamples, qint64 durMs) {
+        m_currentAudioPcm = liveSamples;
+        m_waveformWidget->setLiveAudioData(liveSamples, durMs);
+        m_recordingTimeLabel->setText(formatTime(durMs));
+    });
 
     // Connect core player signals
     connect(m_player, &AudioPlayer::positionChanged, this, &MainWindow::onPlaybackPositionChanged);
@@ -231,6 +260,14 @@ void MainWindow::setupSidebar(QWidget *container) {
     connect(m_openFolderBtn, &QPushButton::clicked, this, &MainWindow::onOpenFolder);
     headerRow->addWidget(m_openFolderBtn);
 
+    // Dock Side Button (Toggle Left / Right placement)
+    m_dockSideBtn = new QPushButton(container);
+    m_dockSideBtn->setIcon(QIcon(":/icons/dock.svg"));
+    m_dockSideBtn->setToolTip(tr("Dock Sessions Panel to Right / Left"));
+    m_dockSideBtn->setFixedSize(28, 28);
+    connect(m_dockSideBtn, &QPushButton::clicked, this, &MainWindow::onToggleSidebarDockSide);
+    headerRow->addWidget(m_dockSideBtn);
+
     layout->addLayout(headerRow);
 
     // Action buttons row: New, Save, Delete
@@ -259,15 +296,40 @@ void MainWindow::setupSidebar(QWidget *container) {
 
     layout->addLayout(btnRow);
 
-    // Sessions List
+    // Sessions List with custom item delegate (full word-wrapping, dynamic height, zero clipping)
     m_sessionListWidget = new QListWidget(container);
+    m_sessionListWidget->setItemDelegate(new SessionItemDelegate(m_sessionListWidget));
+    m_sessionListWidget->setResizeMode(QListView::Adjust);
+    m_sessionListWidget->setWordWrap(true);
+    m_sessionListWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_sessionListWidget->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_sessionListWidget->setStyleSheet(
+        "QListWidget { background-color: #14161c; border: 1px solid #272a34; border-radius: 6px; outline: none; padding: 2px; }"
+        "QListWidget::item { border: none; margin: 0; }"
+    );
     connect(m_sessionListWidget, &QListWidget::currentRowChanged, this, &MainWindow::onSessionSelected);
     layout->addWidget(m_sessionListWidget, 1);
 
+    auto *titleLbl = new QLabel(tr("Session Title:"), container);
+    titleLbl->setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 600; margin-top: 4px;");
+    layout->addWidget(titleLbl);
+
     m_sessionTitleEdit = new QLineEdit(container);
-    m_sessionTitleEdit->setPlaceholderText(tr("Session Title"));
+    m_sessionTitleEdit->setPlaceholderText(tr("Type session title..."));
     connect(m_sessionTitleEdit, &QLineEdit::textEdited, this, [this](const QString &t) {
         m_currentSession.title = t;
+        if (m_topSessionTitleEdit && m_topSessionTitleEdit->text() != t) {
+            m_topSessionTitleEdit->setText(t);
+        }
+        int row = m_sessionListWidget->currentRow();
+        if (row >= 0 && row < m_sessionListWidget->count()) {
+            auto *item = m_sessionListWidget->item(row);
+            item->setData(Qt::DisplayRole, t.trimmed().isEmpty() ? tr("Untitled Session") : t);
+            item->setToolTip(QString("%1\nCreated: %2\nDuration: %3")
+                .arg(t)
+                .arg(m_currentSession.createdAt.toString("yyyy-MM-dd hh:mm:ss"))
+                .arg(formatTime(m_currentSession.durationMs)));
+        }
     });
     layout->addWidget(m_sessionTitleEdit);
 }
@@ -275,10 +337,13 @@ void MainWindow::setupSidebar(QWidget *container) {
 void MainWindow::setupTopBar(QWidget *container) {
     auto *mainLayout = new QVBoxLayout(container);
     mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->setSpacing(4);
+    mainLayout->setSpacing(6);
 
-    auto *topRow = new QHBoxLayout();
-    topRow->setSpacing(6);
+    // =========================================================================
+    // Row 1: Session Header & Studio Navigation
+    // =========================================================================
+    auto *sessionHeaderRow = new QHBoxLayout();
+    sessionHeaderRow->setSpacing(8);
 
     // Sidebar toggle button
     m_sidebarToggleBtn = new QPushButton(container);
@@ -286,45 +351,147 @@ void MainWindow::setupTopBar(QWidget *container) {
     m_sidebarToggleBtn->setToolTip(tr("Toggle Left Sidebar [Ctrl+B]"));
     m_sidebarToggleBtn->setFixedSize(30, 30);
     connect(m_sidebarToggleBtn, &QPushButton::clicked, this, &MainWindow::onSidebarToggle);
-    topRow->addWidget(m_sidebarToggleBtn);
+    sessionHeaderRow->addWidget(m_sidebarToggleBtn);
+
+    // Prominent full Session Title editor
+    m_topSessionTitleEdit = new QLineEdit(container);
+    m_topSessionTitleEdit->setPlaceholderText(tr("Untitled Session"));
+    m_topSessionTitleEdit->setStyleSheet(
+        "QLineEdit { background: #181b24; border: 1px solid #2d3242; border-radius: 6px; padding: 4px 10px; "
+        "font-size: 13px; font-weight: 700; color: #f8fafc; min-width: 180px; }"
+        "QLineEdit:focus { border-color: #6366f1; background: #202431; }"
+    );
+    m_topSessionTitleEdit->setToolTip(tr("Current session name. Click to edit."));
+    connect(m_topSessionTitleEdit, &QLineEdit::textEdited, this, [this](const QString &t) {
+        m_currentSession.title = t;
+        if (m_sessionTitleEdit && m_sessionTitleEdit->text() != t) {
+            m_sessionTitleEdit->setText(t);
+        }
+        int row = m_sessionListWidget->currentRow();
+        if (row >= 0 && row < m_sessionListWidget->count()) {
+            auto *item = m_sessionListWidget->item(row);
+            item->setData(Qt::DisplayRole, t.trimmed().isEmpty() ? tr("Untitled Session") : t);
+            item->setToolTip(QString("%1\nCreated: %2\nDuration: %3")
+                .arg(t)
+                .arg(m_currentSession.createdAt.toString("yyyy-MM-dd hh:mm:ss"))
+                .arg(formatTime(m_currentSession.durationMs)));
+        }
+    });
+    sessionHeaderRow->addWidget(m_topSessionTitleEdit, 1);
+
+    // Date Badge
+    m_sessionDateBadge = new QLabel(container);
+    m_sessionDateBadge->setStyleSheet(
+        "background: #1e2230; color: #94a3b8; border: 1px solid #2a3042; border-radius: 4px; padding: 3px 8px; font-size: 11px;"
+    );
+    sessionHeaderRow->addWidget(m_sessionDateBadge);
+
+    // Take Status Badge
+    m_sessionTakeBadge = new QLabel(container);
+    m_sessionTakeBadge->setStyleSheet(
+        "background: #1e2230; color: #a5b4fc; border: 1px solid #3730a3; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 600;"
+    );
+    sessionHeaderRow->addWidget(m_sessionTakeBadge);
+
+    sessionHeaderRow->addSpacing(8);
+
+    // Layout switcher buttons
+    sessionHeaderRow->addWidget(new QLabel(tr("Layout:"), container));
+    m_layoutSplitVBtn = new QPushButton(container);
+    m_layoutSplitVBtn->setIcon(QIcon(":/icons/layout-split-v.svg"));
+    m_layoutSplitVBtn->setToolTip(tr("Stacked View (Notes on top, Transcript under it)"));
+    m_layoutSplitVBtn->setFixedSize(28, 28);
+    connect(m_layoutSplitVBtn, &QPushButton::clicked, this, [this]() {
+        setWorkspaceLayout(WorkspaceLayout::StackedSplit);
+    });
+    sessionHeaderRow->addWidget(m_layoutSplitVBtn);
+
+    m_layoutSplitHBtn = new QPushButton(container);
+    m_layoutSplitHBtn->setIcon(QIcon(":/icons/layout-split-h.svg"));
+    m_layoutSplitHBtn->setToolTip(tr("Side-by-Side View (Notes left, Transcript right)"));
+    m_layoutSplitHBtn->setFixedSize(28, 28);
+    connect(m_layoutSplitHBtn, &QPushButton::clicked, this, [this]() {
+        setWorkspaceLayout(WorkspaceLayout::SideSplit);
+    });
+    sessionHeaderRow->addWidget(m_layoutSplitHBtn);
+
+    m_layoutTabsBtn = new QPushButton(container);
+    m_layoutTabsBtn->setIcon(QIcon(":/icons/layout-tabs.svg"));
+    m_layoutTabsBtn->setToolTip(tr("Tabs View (Sentences, Notes, TTS Studio, Models)"));
+    m_layoutTabsBtn->setFixedSize(28, 28);
+    connect(m_layoutTabsBtn, &QPushButton::clicked, this, [this]() {
+        setWorkspaceLayout(WorkspaceLayout::Tabbed);
+    });
+    sessionHeaderRow->addWidget(m_layoutTabsBtn);
+
+    sessionHeaderRow->addSpacing(6);
+
+    // Dedicated Models Manager Button
+    m_manageModelsBtn = new QPushButton(tr("Models"), container);
+    m_manageModelsBtn->setIcon(QIcon(":/icons/cpu.svg"));
+    m_manageModelsBtn->setToolTip(tr("Open Whisper Models Manager (Download presets, import & delete models)"));
+    connect(m_manageModelsBtn, &QPushButton::clicked, this, &MainWindow::onOpenModelManager);
+    sessionHeaderRow->addWidget(m_manageModelsBtn);
+
+    // Engine & App Config Button
+    m_configBtn = new QPushButton(tr("Config"), container);
+    m_configBtn->setIcon(QIcon(":/icons/settings.svg"));
+    m_configBtn->setToolTip(tr("Configure Whisper STT, Pocket TTS, threads & dock position"));
+    connect(m_configBtn, &QPushButton::clicked, this, &MainWindow::onOpenConfigDialog);
+    sessionHeaderRow->addWidget(m_configBtn);
+
+    // TTS Studio Button
+    m_ttsStudioBtn = new QPushButton(tr("TTS"), container);
+    m_ttsStudioBtn->setIcon(QIcon(":/icons/volume.svg"));
+    m_ttsStudioBtn->setToolTip(tr("Open Pocket TTS Speech Synthesis Studio"));
+    connect(m_ttsStudioBtn, &QPushButton::clicked, this, &MainWindow::onOpenTtsStudio);
+    sessionHeaderRow->addWidget(m_ttsStudioBtn);
+
+    mainLayout->addLayout(sessionHeaderRow);
+
+    // =========================================================================
+    // Row 2: Audio Recording & STT Toolbar
+    // =========================================================================
+    auto *audioRow = new QHBoxLayout();
+    audioRow->setSpacing(6);
 
     // Audio input selector
-    topRow->addWidget(new QLabel(tr("Input:"), container));
+    audioRow->addWidget(new QLabel(tr("Input:"), container));
     m_inputDeviceCombo = new QComboBox(container);
-    m_inputDeviceCombo->setMinimumWidth(160);
+    m_inputDeviceCombo->setMinimumWidth(150);
     connect(m_inputDeviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onAudioInputDeviceChanged);
-    topRow->addWidget(m_inputDeviceCombo);
+    audioRow->addWidget(m_inputDeviceCombo);
 
     auto *refreshDevBtn = new QPushButton(container);
     refreshDevBtn->setIcon(QIcon(":/icons/refresh-cw.svg"));
     refreshDevBtn->setToolTip(tr("Refresh Audio Devices"));
     refreshDevBtn->setFixedSize(28, 28);
     connect(refreshDevBtn, &QPushButton::clicked, this, &MainWindow::refreshAudioDevices);
-    topRow->addWidget(refreshDevBtn);
+    audioRow->addWidget(refreshDevBtn);
 
     // Record Button (New Take)
     m_recordBtn = new QPushButton(tr("Record"), container);
     m_recordBtn->setIcon(QIcon(":/icons/record.svg"));
-    m_recordBtn->setStyleSheet("background-color: #dc2626; color: white; font-weight: 600; padding: 6px 14px;");
+    m_recordBtn->setStyleSheet("background-color: #dc2626; color: white; font-weight: 600; padding: 5px 12px;");
     m_recordBtn->setToolTip(tr("Record a fresh take (replaces previous audio)"));
     connect(m_recordBtn, &QPushButton::clicked, this, &MainWindow::onRecordToggle);
-    topRow->addWidget(m_recordBtn);
+    audioRow->addWidget(m_recordBtn);
 
     // Append Record Button (Record More / Multi-sentence)
     m_recordAppendBtn = new QPushButton(tr("Append"), container);
     m_recordAppendBtn->setIcon(QIcon(":/icons/mic-plus.svg"));
-    m_recordAppendBtn->setStyleSheet("background-color: #b91c1c; color: white; font-weight: 500;");
+    m_recordAppendBtn->setStyleSheet("background-color: #b91c1c; color: white; font-weight: 500; padding: 5px 10px;");
     m_recordAppendBtn->setToolTip(tr("Record additional sentences/paragraphs to existing session audio"));
     connect(m_recordAppendBtn, &QPushButton::clicked, this, &MainWindow::onRecordAppendToggle);
-    topRow->addWidget(m_recordAppendBtn);
+    audioRow->addWidget(m_recordAppendBtn);
 
     // Retake Button
     m_retakeBtn = new QPushButton(tr("Retake"), container);
     m_retakeBtn->setIcon(QIcon(":/icons/rotate-ccw.svg"));
     m_retakeBtn->setToolTip(tr("Clear existing recording and prepare for a fresh take"));
     connect(m_retakeBtn, &QPushButton::clicked, this, &MainWindow::onRetake);
-    topRow->addWidget(m_retakeBtn);
+    audioRow->addWidget(m_retakeBtn);
 
     m_pauseBtn = new QPushButton(container);
     m_pauseBtn->setIcon(QIcon(":/icons/pause.svg"));
@@ -332,28 +499,54 @@ void MainWindow::setupTopBar(QWidget *container) {
     m_pauseBtn->setEnabled(false);
     m_pauseBtn->setFixedSize(28, 28);
     connect(m_pauseBtn, &QPushButton::clicked, this, &MainWindow::onPauseToggle);
-    topRow->addWidget(m_pauseBtn);
+    audioRow->addWidget(m_pauseBtn);
 
     m_recordingTimeLabel = new QLabel("00:00", container);
     m_recordingTimeLabel->setStyleSheet("font-family: monospace; font-size: 13px; font-weight: bold; color: #f87171;");
-    topRow->addWidget(m_recordingTimeLabel);
+    audioRow->addWidget(m_recordingTimeLabel);
 
     // Live VU Meter
     m_levelMeter = new AudioLevelMeter(container);
-    m_levelMeter->setFixedWidth(70);
-    topRow->addWidget(m_levelMeter);
+    m_levelMeter->setFixedWidth(65);
+    audioRow->addWidget(m_levelMeter);
 
-    topRow->addSpacing(10);
+    // Mic Boost / Input Gain
+    audioRow->addSpacing(2);
+    audioRow->addWidget(new QLabel(tr("Gain:"), container));
+    m_micGainSlider = new QSlider(Qt::Horizontal, container);
+    m_micGainSlider->setRange(10, 40);
+    m_micGainSlider->setValue(static_cast<int>(m_recorder->inputGain() * 10.0f));
+    m_micGainSlider->setFixedWidth(60);
+    m_micGainSlider->setToolTip(tr("Microphone input boost (1.0x - 4.0x)"));
+    m_gainValueLabel = new QLabel(QString("%1x").arg(m_recorder->inputGain(), 0, 'f', 1), container);
+    m_gainValueLabel->setStyleSheet("font-family: monospace; font-size: 11px; color: #a5b4fc; font-weight: 600;");
+    connect(m_micGainSlider, &QSlider::valueChanged, this, [this](int val) {
+        float gain = val / 10.0f;
+        m_recorder->setInputGain(gain);
+        m_gainValueLabel->setText(QString("%1x").arg(gain, 0, 'f', 1));
+    });
+    audioRow->addWidget(m_micGainSlider);
+    audioRow->addWidget(m_gainValueLabel);
+
+    audioRow->addStretch();
 
     // Whisper Model selector
-    topRow->addWidget(new QLabel(tr("Model:"), container));
+    audioRow->addWidget(new QLabel(tr("Model:"), container));
     m_modelCombo = new QComboBox(container);
-    m_modelCombo->setMinimumWidth(180);
+    m_modelCombo->setMinimumWidth(160);
     connect(m_modelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onModelSelectionChanged);
-    topRow->addWidget(m_modelCombo);
+    audioRow->addWidget(m_modelCombo);
 
-    topRow->addWidget(new QLabel(tr("Lang:"), container));
+    // Quick Add Model Button
+    m_addModelBtn = new QPushButton(container);
+    m_addModelBtn->setIcon(QIcon(":/icons/folder-plus.svg"));
+    m_addModelBtn->setToolTip(tr("Import Local Whisper Model (.bin / .gguf)"));
+    m_addModelBtn->setFixedSize(28, 28);
+    connect(m_addModelBtn, &QPushButton::clicked, this, &MainWindow::onAddCustomModelClicked);
+    audioRow->addWidget(m_addModelBtn);
+
+    audioRow->addWidget(new QLabel(tr("Lang:"), container));
     m_languageCombo = new QComboBox(container);
     m_languageCombo->addItem("German (de)", "de");
     m_languageCombo->addItem("English (en)", "en");
@@ -367,48 +560,16 @@ void MainWindow::setupTopBar(QWidget *container) {
         m_currentSession.language = lang;
         m_whisper->setLanguage(lang);
     });
-    topRow->addWidget(m_languageCombo);
+    audioRow->addWidget(m_languageCombo);
 
     // Transcribe Button
     m_transcribeBtn = new QPushButton(tr("Transcribe"), container);
     m_transcribeBtn->setIcon(QIcon(":/icons/zap.svg"));
-    m_transcribeBtn->setStyleSheet("background-color: #4f46e5; color: white; font-weight: 600; padding: 6px 14px;");
+    m_transcribeBtn->setStyleSheet("background-color: #4f46e5; color: white; font-weight: 600; padding: 5px 14px;");
     connect(m_transcribeBtn, &QPushButton::clicked, this, &MainWindow::onTranscribeClicked);
-    topRow->addWidget(m_transcribeBtn);
+    audioRow->addWidget(m_transcribeBtn);
 
-    topRow->addSpacing(8);
-
-    // Layout switcher buttons
-    topRow->addWidget(new QLabel(tr("Layout:"), container));
-    m_layoutSplitVBtn = new QPushButton(container);
-    m_layoutSplitVBtn->setIcon(QIcon(":/icons/layout-split-v.svg"));
-    m_layoutSplitVBtn->setToolTip(tr("Stacked View (Notes on top, Transcript under it)"));
-    m_layoutSplitVBtn->setFixedSize(28, 28);
-    connect(m_layoutSplitVBtn, &QPushButton::clicked, this, [this]() {
-        setWorkspaceLayout(WorkspaceLayout::StackedSplit);
-    });
-    topRow->addWidget(m_layoutSplitVBtn);
-
-    m_layoutSplitHBtn = new QPushButton(container);
-    m_layoutSplitHBtn->setIcon(QIcon(":/icons/layout-split-h.svg"));
-    m_layoutSplitHBtn->setToolTip(tr("Side-by-Side View (Notes left, Transcript right)"));
-    m_layoutSplitHBtn->setFixedSize(28, 28);
-    connect(m_layoutSplitHBtn, &QPushButton::clicked, this, [this]() {
-        setWorkspaceLayout(WorkspaceLayout::SideSplit);
-    });
-    topRow->addWidget(m_layoutSplitHBtn);
-
-    m_layoutTabsBtn = new QPushButton(container);
-    m_layoutTabsBtn->setIcon(QIcon(":/icons/layout-tabs.svg"));
-    m_layoutTabsBtn->setToolTip(tr("Tabs View (Sentences, Notes, TTS Studio, Models)"));
-    m_layoutTabsBtn->setFixedSize(28, 28);
-    connect(m_layoutTabsBtn, &QPushButton::clicked, this, [this]() {
-        setWorkspaceLayout(WorkspaceLayout::Tabbed);
-    });
-    topRow->addWidget(m_layoutTabsBtn);
-
-    topRow->addStretch();
-    mainLayout->addLayout(topRow);
+    mainLayout->addLayout(audioRow);
 
     // Transcribe Progress Bar
     m_transcribeProgress = new QProgressBar(container);
@@ -435,6 +596,31 @@ void MainWindow::setupWaveformArea(QWidget *container) {
     auto *timelineTitle = new QLabel(tr("Timeline & Waveform"), container);
     timelineTitle->setStyleSheet("font-size: 11px; font-weight: 600; color: #818cf8;");
     topRow->addWidget(timelineTitle);
+
+    topRow->addSpacing(14);
+
+    // Takes control bar
+    topRow->addWidget(new QLabel(tr("Takes:"), container));
+    m_takeCombo = new QComboBox(container);
+    m_takeCombo->setMinimumWidth(150);
+    m_takeCombo->setToolTip(tr("Select active take"));
+    connect(m_takeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onTakeSelected);
+    topRow->addWidget(m_takeCombo);
+
+    m_newTakeBtn = new QPushButton(tr("+ New Take"), container);
+    m_newTakeBtn->setIcon(QIcon(":/icons/plus.svg"));
+    m_newTakeBtn->setStyleSheet("background-color: #059669; color: white; font-weight: 600; padding: 2px 8px; font-size: 11px;");
+    m_newTakeBtn->setToolTip(tr("Create a new take for this session"));
+    connect(m_newTakeBtn, &QPushButton::clicked, this, &MainWindow::onNewTakeClicked);
+    topRow->addWidget(m_newTakeBtn);
+
+    m_deleteTakeBtn = new QPushButton(container);
+    m_deleteTakeBtn->setIcon(QIcon(":/icons/trash-2.svg"));
+    m_deleteTakeBtn->setToolTip(tr("Delete current take"));
+    m_deleteTakeBtn->setFixedSize(26, 24);
+    connect(m_deleteTakeBtn, &QPushButton::clicked, this, &MainWindow::onDeleteTakeClicked);
+    topRow->addWidget(m_deleteTakeBtn);
 
     topRow->addStretch();
 
@@ -630,12 +816,27 @@ void MainWindow::setupModelManagerTab(QWidget *container) {
     layout->setContentsMargins(16, 16, 16, 16);
     layout->setSpacing(12);
 
+    auto *topRow = new QHBoxLayout();
     auto *hdr = new QLabel(
-        tr("<b>Whisper.cpp Models Manager:</b> Download fine-tuned German model or official Whisper models, or convert HuggingFace models."),
+        tr("<b>Whisper.cpp Models:</b> Download fine-tuned German or standard Whisper models, or import custom models."),
         container
     );
     hdr->setStyleSheet("color: #818cf8; font-size: 13px;");
-    layout->addWidget(hdr);
+    topRow->addWidget(hdr, 1);
+
+    auto *importBtn = new QPushButton(tr("Import Model..."), container);
+    importBtn->setIcon(QIcon(":/icons/folder-plus.svg"));
+    connect(importBtn, &QPushButton::clicked, this, &MainWindow::onAddCustomModelClicked);
+    topRow->addWidget(importBtn);
+
+    auto *openDirBtn = new QPushButton(tr("Open Folder"), container);
+    openDirBtn->setIcon(QIcon(":/icons/folder-open.svg"));
+    connect(openDirBtn, &QPushButton::clicked, this, [this]() {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(m_modelManager->modelsDirectory()));
+    });
+    topRow->addWidget(openDirBtn);
+
+    layout->addLayout(topRow);
 
     auto *table = new QTableWidget(container);
     table->setColumnCount(4);
@@ -656,18 +857,40 @@ void MainWindow::setupModelManagerTab(QWidget *container) {
         table->setItem(r, 2, new QTableWidgetItem(QString("%1 MB").arg(p.approxSizeMb)));
 
         bool installed = m_modelManager->isModelInstalled(p.id);
-        auto *actionBtn = new QPushButton(installed ? tr("Installed") : tr("Download"), table);
+        auto *actionWidget = new QWidget(table);
+        auto *actionLayout = new QHBoxLayout(actionWidget);
+        actionLayout->setContentsMargins(2, 2, 2, 2);
+        actionLayout->setSpacing(6);
+
+        QString pid = p.id;
         if (installed) {
-            actionBtn->setEnabled(false);
-            actionBtn->setStyleSheet("background-color: #065f46; color: #6ee7b7; font-weight: 600;");
+            auto *badge = new QLabel(tr("Installed ✓"), actionWidget);
+            badge->setStyleSheet("color: #34d399; font-weight: 600; padding: 2px 6px;");
+            actionLayout->addWidget(badge);
+
+            auto *delBtn = new QPushButton(tr("Delete"), actionWidget);
+            delBtn->setIcon(QIcon(":/icons/trash-2.svg"));
+            delBtn->setStyleSheet("background-color: #991b1b; color: white; padding: 3px 8px; font-size: 11px;");
+            connect(delBtn, &QPushButton::clicked, this, [this, pid]() {
+                auto rep = QMessageBox::question(this, tr("Delete Model"),
+                    tr("Are you sure you want to delete this model file?"),
+                    QMessageBox::Yes | QMessageBox::No);
+                if (rep == QMessageBox::Yes) {
+                    m_modelManager->deletePresetModel(pid);
+                    refreshModelList();
+                }
+            });
+            actionLayout->addWidget(delBtn);
         } else {
-            actionBtn->setStyleSheet("background-color: #4338ca; color: white;");
-            QString pid = p.id;
+            auto *actionBtn = new QPushButton(tr("Download"), actionWidget);
+            actionBtn->setIcon(QIcon(":/icons/download.svg"));
+            actionBtn->setStyleSheet("background-color: #4338ca; color: white; font-weight: 600; padding: 4px 10px;");
             connect(actionBtn, &QPushButton::clicked, this, [this, pid]() {
                 onDownloadPresetRequested(pid);
             });
+            actionLayout->addWidget(actionBtn);
         }
-        table->setCellWidget(r, 3, actionBtn);
+        table->setCellWidget(r, 3, actionWidget);
     }
     layout->addWidget(table, 1);
 
@@ -724,7 +947,79 @@ void MainWindow::setupModelManagerTab(QWidget *container) {
 // -----------------------------------------------------------------------------
 
 void MainWindow::onSidebarToggle() {
-    m_sidebarWidget->setVisible(!m_sidebarWidget->isVisible());
+    if (m_sidebarWidget->isVisible()) {
+        QList<int> sz = m_mainSplitter->sizes();
+        int sideIdx = m_sidebarOnRight ? 1 : 0;
+        if (sz.size() > sideIdx && sz[sideIdx] > 50) {
+            m_savedSidebarWidth = sz[sideIdx];
+        }
+        m_sidebarWidget->setVisible(false);
+    } else {
+        m_sidebarWidget->setVisible(true);
+        QList<int> sz = m_mainSplitter->sizes();
+        int total = (sz.size() > 1) ? (sz[0] + sz[1]) : width();
+        if (m_sidebarOnRight) {
+            m_mainSplitter->setSizes({total - m_savedSidebarWidth, m_savedSidebarWidth});
+        } else {
+            m_mainSplitter->setSizes({m_savedSidebarWidth, total - m_savedSidebarWidth});
+        }
+    }
+}
+
+void MainWindow::onToggleSidebarDockSide() {
+    m_sidebarOnRight = !m_sidebarOnRight;
+
+    QList<int> currentSizes = m_mainSplitter->sizes();
+    int sideWidth = (currentSizes.size() > 1) ? (m_sidebarOnRight ? currentSizes[0] : currentSizes[1]) : 280;
+    int studioWidth = (currentSizes.size() > 1) ? (m_sidebarOnRight ? currentSizes[1] : currentSizes[0]) : 1000;
+    if (sideWidth < 160) sideWidth = 280;
+
+    m_sidebarWidget->setParent(nullptr);
+    m_studioWidget->setParent(nullptr);
+
+    if (m_sidebarOnRight) {
+        m_mainSplitter->addWidget(m_studioWidget);
+        m_mainSplitter->addWidget(m_sidebarWidget);
+        m_mainSplitter->setSizes({studioWidth, sideWidth});
+        m_dockSideBtn->setToolTip(tr("Dock Sessions Panel to Left"));
+        statusBar()->showMessage(tr("Sessions panel docked to right side."), 3000);
+    } else {
+        m_mainSplitter->addWidget(m_sidebarWidget);
+        m_mainSplitter->addWidget(m_studioWidget);
+        m_mainSplitter->setSizes({sideWidth, studioWidth});
+        m_dockSideBtn->setToolTip(tr("Dock Sessions Panel to Right"));
+        statusBar()->showMessage(tr("Sessions panel docked to left side."), 3000);
+    }
+}
+
+void MainWindow::onOpenModelManager() {
+    ModelManagerDialog dlg(m_modelManager, m_whisper, this);
+    dlg.exec();
+    refreshModelList();
+}
+
+void MainWindow::onOpenConfigDialog() {
+    ConfigDialog dlg(m_whisper, m_modelManager, m_tts, m_player, m_sidebarOnRight, this);
+    connect(&dlg, &ConfigDialog::sidebarDockSideChanged, this, [this](bool onRight) {
+        if (onRight != m_sidebarOnRight) {
+            onToggleSidebarDockSide();
+        }
+    });
+    connect(&dlg, &ConfigDialog::openModelManagerRequested, this, &MainWindow::onOpenModelManager);
+    if (dlg.exec() == QDialog::Accepted) {
+        refreshModelList();
+        statusBar()->showMessage(tr("Configuration applied successfully."), 3000);
+    }
+}
+
+void MainWindow::onOpenTtsStudio() {
+    setWorkspaceLayout(WorkspaceLayout::Tabbed);
+    for (int i = 0; i < m_tabWidget->count(); ++i) {
+        if (m_tabWidget->tabText(i).contains("TTS", Qt::CaseInsensitive)) {
+            m_tabWidget->setCurrentIndex(i);
+            break;
+        }
+    }
 }
 
 void MainWindow::setWorkspaceLayout(WorkspaceLayout layout) {
@@ -884,13 +1179,27 @@ void MainWindow::onRecordingDurationChanged(qint64 ms) {
 void MainWindow::onRecordingFinished(const QString &savedPath, qint64 durationMs) {
     m_currentAudioPcm = m_recorder->pcmSamples();
     m_currentSession.durationMs = durationMs;
-    m_currentSession.audioFileName = "audio.wav";
+
+    if (m_currentSession.takes.isEmpty()) {
+        m_currentSession.addNewTake("Take 1");
+    }
+    auto *curTake = m_currentSession.currentTake();
+    if (curTake) {
+        curTake->durationMs = durationMs;
+        curTake->segments = m_currentSession.segments;
+        if (curTake->audioFileName.isEmpty()) {
+            curTake->audioFileName = curTake->id + ".wav";
+        }
+        QString takePath = m_sessionManager->getTakeAudioPath(m_currentSession.id, curTake->audioFileName);
+        AudioUtils::writeWavFile(takePath, m_currentAudioPcm, 16000, 1);
+    }
 
     m_waveformWidget->setAudioData(m_currentAudioPcm, durationMs);
     m_player->setSource(savedPath);
 
     onSaveSession();
-    statusBar()->showMessage(tr("Recording complete. Duration: %1. Ready to transcribe.").arg(formatTime(durationMs)));
+    updateTakesUi();
+    statusBar()->showMessage(tr("Recording complete (%1). Ready to transcribe.").arg(formatTime(durationMs)));
 }
 
 // -----------------------------------------------------------------------------
@@ -1158,7 +1467,14 @@ void MainWindow::onSaveSession() {
     m_currentSession.noteMarkdown = m_noteEditor->markdownText();
     m_currentSession.segments = m_sentenceListView->segments();
 
+    auto *curTake = m_currentSession.currentTake();
+    if (curTake) {
+        curTake->segments = m_currentSession.segments;
+        curTake->durationMs = m_currentSession.durationMs;
+    }
+
     m_sessionManager->saveSession(m_currentSession, m_currentAudioPcm);
+    updateTakesUi();
     statusBar()->showMessage(tr("Session saved: %1").arg(m_currentSession.title));
 }
 
@@ -1194,15 +1510,150 @@ void MainWindow::onSessionSelected(int row) {
 
 void MainWindow::loadCurrentSessionData() {
     m_sessionTitleEdit->setText(m_currentSession.title);
+    if (m_topSessionTitleEdit) {
+        m_topSessionTitleEdit->setText(m_currentSession.title);
+    }
+    if (m_sessionDateBadge) {
+        m_sessionDateBadge->setText(m_currentSession.createdAt.toString("yyyy-MM-dd hh:mm"));
+    }
+
     m_noteEditor->setMarkdownText(m_currentSession.noteMarkdown);
-    m_sentenceListView->setSegments(m_currentSession.segments);
-    m_waveformWidget->setAudioData(m_currentAudioPcm, m_currentSession.durationMs);
-    m_waveformWidget->setSegments(m_currentSession.segments);
+    updateTakesUi();
 
-    QString audioPath = m_sessionManager->getAudioPath(m_currentSession.id);
-    m_player->setSource(QFile::exists(audioPath) ? audioPath : QString());
+    auto *curTake = m_currentSession.currentTake();
+    if (curTake) {
+        m_sentenceListView->setSegments(curTake->segments);
+        m_waveformWidget->setAudioData(m_currentAudioPcm, curTake->durationMs);
+        m_waveformWidget->setSegments(curTake->segments);
+        QString takePath = m_sessionManager->getTakeAudioPath(m_currentSession.id, curTake->audioFileName);
+        m_player->setSource(QFile::exists(takePath) ? takePath : QString());
+        m_recordingTimeLabel->setText(formatTime(curTake->durationMs));
+    } else {
+        m_sentenceListView->setSegments(m_currentSession.segments);
+        m_waveformWidget->setAudioData(m_currentAudioPcm, m_currentSession.durationMs);
+        m_waveformWidget->setSegments(m_currentSession.segments);
+        QString audioPath = m_sessionManager->getAudioPath(m_currentSession.id);
+        m_player->setSource(QFile::exists(audioPath) ? audioPath : QString());
+        m_recordingTimeLabel->setText(formatTime(m_currentSession.durationMs));
+    }
+}
 
-    m_recordingTimeLabel->setText(formatTime(m_currentSession.durationMs));
+void MainWindow::updateTakesUi() {
+    if (!m_takeCombo) return;
+    m_takeCombo->blockSignals(true);
+    m_takeCombo->clear();
+    for (int i = 0; i < m_currentSession.takes.size(); ++i) {
+        const auto &take = m_currentSession.takes[i];
+        QString label = QString("%1 (%2)").arg(take.name, formatTime(take.durationMs));
+        m_takeCombo->addItem(label, i);
+    }
+    if (m_currentSession.currentTakeIndex >= 0 && m_currentSession.currentTakeIndex < m_takeCombo->count()) {
+        m_takeCombo->setCurrentIndex(m_currentSession.currentTakeIndex);
+    }
+    m_takeCombo->blockSignals(false);
+    if (m_deleteTakeBtn) {
+        m_deleteTakeBtn->setEnabled(m_currentSession.takes.size() > 1);
+    }
+    if (m_sessionTakeBadge) {
+        int cur = m_currentSession.currentTakeIndex + 1;
+        int tot = std::max(1, static_cast<int>(m_currentSession.takes.size()));
+        m_sessionTakeBadge->setText(tr("Take %1 of %2").arg(cur).arg(tot));
+    }
+}
+
+void MainWindow::onTakeSelected(int index) {
+    if (index < 0 || index >= m_currentSession.takes.size()) return;
+    if (index == m_currentSession.currentTakeIndex && !m_currentAudioPcm.empty()) return;
+
+    m_currentSession.currentTakeIndex = index;
+    auto *take = m_currentSession.currentTake();
+    if (take) {
+        QString takePath = m_sessionManager->getTakeAudioPath(m_currentSession.id, take->audioFileName);
+        if (QFile::exists(takePath)) {
+            uint32_t dur = 0;
+            AudioUtils::loadWavToMono16k(takePath, m_currentAudioPcm, dur);
+            m_currentSession.durationMs = dur;
+            take->durationMs = dur;
+            m_waveformWidget->setAudioData(m_currentAudioPcm, dur);
+            m_player->setSource(takePath);
+            m_recordingTimeLabel->setText(formatTime(dur));
+        } else {
+            m_currentAudioPcm.clear();
+            m_currentSession.durationMs = 0;
+            m_waveformWidget->setAudioData({}, 0);
+            m_player->stop();
+            m_player->setSource(QString());
+            m_recordingTimeLabel->setText("00:00");
+        }
+        m_currentSession.segments = take->segments;
+        m_sentenceListView->setSegments(take->segments);
+        m_waveformWidget->setSegments(take->segments);
+        statusBar()->showMessage(tr("Active take: %1").arg(take->name), 2000);
+    }
+}
+
+void MainWindow::onNewTakeClicked() {
+    auto &newTake = m_currentSession.addNewTake();
+    m_currentAudioPcm.clear();
+    m_currentSession.durationMs = 0;
+    m_currentSession.segments.clear();
+
+    m_waveformWidget->setAudioData({}, 0);
+    m_waveformWidget->setSegments({});
+    m_sentenceListView->setSegments({});
+    m_player->stop();
+    m_player->setSource(QString());
+    m_recordingTimeLabel->setText("00:00");
+
+    m_sessionManager->saveSession(m_currentSession);
+    updateTakesUi();
+    statusBar()->showMessage(tr("Created %1. Ready to record.").arg(newTake.name), 3000);
+}
+
+void MainWindow::onDeleteTakeClicked() {
+    if (m_currentSession.takes.size() <= 1) return;
+    auto *take = m_currentSession.currentTake();
+    if (!take) return;
+
+    auto reply = QMessageBox::question(
+        this, tr("Delete Take"),
+        tr("Are you sure you want to delete '%1'?").arg(take->name),
+        QMessageBox::Yes | QMessageBox::No
+    );
+    if (reply != QMessageBox::Yes) return;
+
+    QString takePath = m_sessionManager->getTakeAudioPath(m_currentSession.id, take->audioFileName);
+    if (QFile::exists(takePath)) {
+        QFile::remove(takePath);
+    }
+
+    m_currentSession.removeTake(m_currentSession.currentTakeIndex);
+    m_sessionManager->saveSession(m_currentSession);
+    updateTakesUi();
+
+    auto *newActive = m_currentSession.currentTake();
+    if (newActive) {
+        QString path = m_sessionManager->getTakeAudioPath(m_currentSession.id, newActive->audioFileName);
+        if (QFile::exists(path)) {
+            uint32_t dur = 0;
+            AudioUtils::loadWavToMono16k(path, m_currentAudioPcm, dur);
+            m_currentSession.durationMs = dur;
+            m_waveformWidget->setAudioData(m_currentAudioPcm, dur);
+            m_player->setSource(path);
+            m_recordingTimeLabel->setText(formatTime(dur));
+        } else {
+            m_currentAudioPcm.clear();
+            m_currentSession.durationMs = 0;
+            m_waveformWidget->setAudioData({}, 0);
+            m_player->stop();
+            m_player->setSource(QString());
+            m_recordingTimeLabel->setText("00:00");
+        }
+        m_currentSession.segments = newActive->segments;
+        m_sentenceListView->setSegments(newActive->segments);
+        m_waveformWidget->setSegments(newActive->segments);
+    }
+    statusBar()->showMessage(tr("Take deleted."), 2000);
 }
 
 void MainWindow::updateSessionList() {
@@ -1211,11 +1662,22 @@ void MainWindow::updateSessionList() {
 
     auto sessions = m_sessionManager->listSessions();
     for (const auto &s : sessions) {
-        QString text = QString("%1\n%2 (%3)")
-            .arg(s.title)
-            .arg(s.createdAt.toString("yyyy-MM-dd hh:mm"))
-            .arg(formatTime(s.durationMs));
-        m_sessionListWidget->addItem(text);
+        QString displayTitle = s.title.trimmed().isEmpty() ? tr("Untitled Session") : s.title;
+
+        auto *item = new QListWidgetItem(m_sessionListWidget);
+        item->setData(Qt::DisplayRole, displayTitle);
+        item->setData(Qt::UserRole + 1, s.createdAt.toString("yyyy-MM-dd hh:mm"));
+        item->setData(Qt::UserRole + 2, formatTime(s.durationMs));
+        item->setData(Qt::UserRole + 3, s.id);
+        item->setData(Qt::UserRole + 4, s.takes.size());
+
+        item->setToolTip(QString("%1\nCreated: %2\nDuration: %3\nTakes: %4")
+            .arg(displayTitle)
+            .arg(s.createdAt.toString("yyyy-MM-dd hh:mm:ss"))
+            .arg(formatTime(s.durationMs))
+            .arg(s.takes.size()));
+
+        m_sessionListWidget->addItem(item);
     }
     m_sessionListWidget->blockSignals(false);
 }

@@ -31,5 +31,9 @@
     <file alias="zoom-out.svg">icons/zoom-out.svg</file>
     <file alias="maximize-2.svg">icons/maximize-2.svg</file>
     <file alias="rotate-ccw.svg">icons/rotate-ccw.svg</file>
+    <file alias="settings.svg">icons/settings.svg</file>
+    <file alias="download.svg">icons/download.svg</file>
+    <file alias="folder-plus.svg">icons/folder-plus.svg</file>
+    <file alias="dock.svg">icons/dock.svg</file>
 </qresource>
 </RCC>

@@ -39,6 +39,9 @@ public:
     bool isModelInstalled(const QString &presetId) const;
     QString getModelPath(const QString &presetId) const;
 
+    bool removeModel(const QString &filePathOrName);
+    bool deletePresetModel(const QString &presetId);
+
 public slots:
     void refreshInstalledModels();
     void downloadPreset(const QString &presetId);

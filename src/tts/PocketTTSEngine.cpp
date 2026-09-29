@@ -5,9 +5,14 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <QDebug>
+#include <QUrl>
+#include <QNetworkRequest>
+#include <QHttpMultiPart>
+#include <QHttpPart>
 
 PocketTTSEngine::PocketTTSEngine(QObject *parent)
     : QObject(parent) {
+    m_netManager = new QNetworkAccessManager(this);
     detectEnvironment();
 
     m_voices.append({"juergen", "Jürgen (German)", "german"});
@@ -16,9 +21,15 @@ PocketTTSEngine::PocketTTSEngine(QObject *parent)
     m_voices.append({"lola", "Lola (Spanish)", "spanish"});
     m_voices.append({"giovanni", "Giovanni (Italian)", "italian"});
     m_voices.append({"rafael", "Rafael (Portuguese)", "portuguese"});
+
+    // Warm-up: Start persistent background server so synthesis is sub-second
+    if (isAvailable()) {
+        startServer(8989, "german", "juergen");
+    }
 }
 
 PocketTTSEngine::~PocketTTSEngine() {
+    stopServer();
     cancel();
 }
 
@@ -75,6 +86,52 @@ QString PocketTTSEngine::defaultVoiceForLanguage(const QString &language) const 
     return "alba";
 }
 
+void PocketTTSEngine::startServer(int port, const QString &language, const QString &defaultVoice) {
+    if (m_serverProcess && m_serverProcess->state() == QProcess::Running) {
+        return;
+    }
+    m_serverPort = port;
+    m_serverProcess = new QProcess(this);
+    connect(m_serverProcess, &QProcess::readyReadStandardOutput, this, &PocketTTSEngine::onServerOutput);
+    connect(m_serverProcess, &QProcess::readyReadStandardError, this, &PocketTTSEngine::onServerOutput);
+
+    QString program;
+    QStringList args;
+    if (m_useUv) {
+        program = m_executablePath;
+        args << "run" << "--directory" << m_engineDir << "pocket-tts" << "serve"
+             << "--port" << QString::number(port)
+             << "--language" << language
+             << "--default-voice" << defaultVoice;
+    } else {
+        program = m_executablePath.isEmpty() ? "pocket-tts" : m_executablePath;
+        args << "serve"
+             << "--port" << QString::number(port)
+             << "--language" << language
+             << "--default-voice" << defaultVoice;
+    }
+    m_serverProcess->start(program, args);
+}
+
+void PocketTTSEngine::stopServer() {
+    if (m_serverProcess) {
+        m_serverProcess->kill();
+        m_serverProcess->waitForFinished(1000);
+        m_serverProcess->deleteLater();
+        m_serverProcess = nullptr;
+        m_serverReady = false;
+    }
+}
+
+void PocketTTSEngine::onServerOutput() {
+    if (!m_serverProcess) return;
+    QString out = QString::fromUtf8(m_serverProcess->readAllStandardOutput() + m_serverProcess->readAllStandardError());
+    if (out.contains("Application startup complete") || out.contains("Uvicorn running")) {
+        m_serverReady = true;
+        emit serverReady();
+    }
+}
+
 void PocketTTSEngine::generateSpeech(const QString &text,
                                      const QString &outputPath,
                                      const QString &language,
@@ -93,16 +150,6 @@ void PocketTTSEngine::generateSpeech(const QString &text,
     QFileInfo outInfo(outputPath);
     QDir().mkpath(outInfo.absolutePath());
 
-    m_process = new QProcess(this);
-
-    connect(m_process, &QProcess::readyReadStandardOutput, this, &PocketTTSEngine::onProcessOutput);
-    connect(m_process, &QProcess::readyReadStandardError, this, &PocketTTSEngine::onProcessOutput);
-    connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, &PocketTTSEngine::onProcessFinished);
-
-    QString program;
-    QStringList args;
-
     QString lang = language.toLower();
     if (lang == "de") lang = "german";
     if (lang == "en") lang = "english";
@@ -112,6 +159,74 @@ void PocketTTSEngine::generateSpeech(const QString &text,
     if (lang == "pt") lang = "portuguese";
 
     QString targetVoice = voice.isEmpty() ? defaultVoiceForLanguage(lang) : voice;
+
+    emit generationStarted(text);
+
+    if (m_serverReady) {
+        generateViaHttp(text, outputPath, targetVoice);
+    } else {
+        generateViaCli(text, outputPath, lang, targetVoice);
+    }
+}
+
+void PocketTTSEngine::generateViaHttp(const QString &text, const QString &outputPath, const QString &voice) {
+    QUrl url(QString("http://127.0.0.1:%1/tts").arg(m_serverPort));
+    QNetworkRequest request(url);
+
+    auto *multiPart = new QHttpMultiPart(QHttpMultiPart::FormDataType);
+
+    QHttpPart textPart;
+    textPart.setHeader(QNetworkRequest::ContentDispositionHeader, QVariant("form-data; name=\"text\""));
+    textPart.setBody(text.toUtf8());
+    multiPart->append(textPart);
+
+    if (!voice.isEmpty()) {
+        QHttpPart voicePart;
+        voicePart.setHeader(QNetworkRequest::ContentDispositionHeader, QVariant("form-data; name=\"voice_url\""));
+        voicePart.setBody(voice.toUtf8());
+        multiPart->append(voicePart);
+    }
+
+    if (m_currentReply) {
+        m_currentReply->abort();
+        m_currentReply->deleteLater();
+        m_currentReply = nullptr;
+    }
+
+    m_currentReply = m_netManager->post(request, multiPart);
+    multiPart->setParent(m_currentReply);
+
+    connect(m_currentReply, &QNetworkReply::finished, this, [this, outputPath]() {
+        if (!m_currentReply) return;
+        if (m_currentReply->error() == QNetworkReply::NoError) {
+            QByteArray data = m_currentReply->readAll();
+            QFile file(outputPath);
+            if (file.open(QIODevice::WriteOnly)) {
+                file.write(data);
+                file.close();
+                emit generationCompleted(outputPath);
+            } else {
+                emit generationFailed(tr("Failed to save audio to %1").arg(outputPath));
+            }
+        } else {
+            // Fall back to CLI if HTTP failed
+            generateViaCli(m_currentText, outputPath, "german", "juergen");
+        }
+        m_currentReply->deleteLater();
+        m_currentReply = nullptr;
+    });
+}
+
+void PocketTTSEngine::generateViaCli(const QString &text, const QString &outputPath, const QString &lang, const QString &targetVoice) {
+    m_process = new QProcess(this);
+
+    connect(m_process, &QProcess::readyReadStandardOutput, this, &PocketTTSEngine::onProcessOutput);
+    connect(m_process, &QProcess::readyReadStandardError, this, &PocketTTSEngine::onProcessOutput);
+    connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &PocketTTSEngine::onProcessFinished);
+
+    QString program;
+    QStringList args;
 
     if (m_useUv) {
         program = m_executablePath;
@@ -132,7 +247,6 @@ void PocketTTSEngine::generateSpeech(const QString &text,
              << "--quiet";
     }
 
-    emit generationStarted(text);
     m_process->start(program, args);
 }
 

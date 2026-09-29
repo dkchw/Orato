@@ -35,6 +35,9 @@ public:
 
     bool isAppendMode() const { return m_appendMode; }
 
+    float inputGain() const { return m_inputGain; }
+    void setInputGain(float gain) { m_inputGain = std::max(0.2f, std::min(gain, 10.0f)); }
+
 public slots:
     bool startRecording(const QAudioDevice &device = QAudioDevice(), bool appendMode = false);
     void pauseRecording();
@@ -44,6 +47,7 @@ public slots:
 signals:
     void stateChanged(AudioRecorder::State state);
     void durationChanged(qint64 ms);
+    void liveAudioUpdated(const std::vector<float> &liveSamples, qint64 durationMs);
     void levelChanged(float peak, float rms);
     void recordingFinished(const QString &savedPath, qint64 durationMs);
     void errorOccurred(const QString &message);
@@ -71,4 +75,5 @@ private:
     QElapsedTimer m_elapsedTimer;
     qint64 m_accumulatedMs = 0;
     qint64 m_baseDurationMs = 0;
+    float m_inputGain = 1.8f;
 };

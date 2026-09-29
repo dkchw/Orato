@@ -24,6 +24,15 @@ void WaveformWidget::setAudioData(const std::vector<float> &pcmSamples, qint64 d
     update();
 }
 
+void WaveformWidget::setLiveAudioData(const std::vector<float> &pcmSamples, qint64 durationMs) {
+    m_pcmSamples = pcmSamples;
+    m_durationMs = durationMs;
+    m_positionMs = durationMs;
+
+    recomputePeaks();
+    update();
+}
+
 void WaveformWidget::setSegments(const QList<AudioSegment> &segments) {
     m_segments = segments;
     update();

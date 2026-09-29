@@ -26,6 +26,8 @@ public:
     QString getAudioPath(const QString &sessionId) const;
     QString getNotePath(const QString &sessionId) const;
     QString getTtsDirectory(const QString &sessionId) const;
+    QString getTakesDirectory(const QString &sessionId) const;
+    QString getTakeAudioPath(const QString &sessionId, const QString &audioFileName) const;
 
 signals:
     void sessionsListChanged();

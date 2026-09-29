@@ -36,6 +36,10 @@ void WhisperWorker::cancel() {
     m_abort.store(true);
 }
 
+void WhisperWorker::preload() {
+    loadModelIfNeeded();
+}
+
 bool WhisperWorker::loadModelIfNeeded() {
     if (m_modelPath.isEmpty() || !QFileInfo::exists(m_modelPath)) {
         emit error(tr("Model file does not exist: %1").arg(m_modelPath));
@@ -185,6 +189,15 @@ void WhisperEngine::setTranslate(bool translate) {
 void WhisperEngine::setThreads(int threads) {
     m_threads = threads;
     m_worker->setThreads(threads);
+}
+
+void WhisperEngine::preloadModel(const QString &modelPath) {
+    if (!modelPath.isEmpty()) {
+        setModelPath(modelPath);
+    }
+    if (!m_modelPath.isEmpty()) {
+        QMetaObject::invokeMethod(m_worker, "preload", Qt::QueuedConnection);
+    }
 }
 
 void WhisperEngine::transcribe(const std::vector<float> &pcmSamples) {

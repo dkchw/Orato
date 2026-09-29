@@ -45,6 +45,28 @@ QString SessionManager::getTtsDirectory(const QString &sessionId) const {
     return sessionDirectory(sessionId) + "/tts";
 }
 
+QString SessionManager::getTakesDirectory(const QString &sessionId) const {
+    return sessionDirectory(sessionId) + "/takes";
+}
+
+QString SessionManager::getTakeAudioPath(const QString &sessionId, const QString &audioFileName) const {
+    if (audioFileName.isEmpty()) {
+        return getAudioPath(sessionId);
+    }
+    if (audioFileName.startsWith("/")) {
+        return audioFileName;
+    }
+    QString takesPath = getTakesDirectory(sessionId) + "/" + audioFileName;
+    if (QFile::exists(takesPath)) {
+        return takesPath;
+    }
+    QString rootPath = sessionDirectory(sessionId) + "/" + audioFileName;
+    if (QFile::exists(rootPath)) {
+        return rootPath;
+    }
+    return takesPath;
+}
+
 QList<SessionData> SessionManager::listSessions() const {
     QList<SessionData> list;
     QDir rootDir(sessionsRootDirectory());
@@ -85,8 +107,18 @@ SessionData SessionManager::createNewSession(const QString &title, const QString
         "- Click any sentence to replay or compare with Pocket TTS!\n"
     ).arg(session.title, now.toString("yyyy-MM-dd hh:mm:ss"), language);
 
+    SessionTake t1;
+    t1.id = "take_1";
+    t1.name = "Take 1";
+    t1.createdAt = now;
+    t1.durationMs = 0;
+    t1.audioFileName = "take_1.wav";
+    session.takes.append(t1);
+    session.currentTakeIndex = 0;
+
     QDir().mkpath(sessionDirectory(session.id));
     QDir().mkpath(getTtsDirectory(session.id));
+    QDir().mkpath(getTakesDirectory(session.id));
 
     saveSession(session);
     emit sessionsListChanged();
@@ -129,12 +161,27 @@ bool SessionManager::loadSession(const QString &sessionId, SessionData &outSessi
         }
     }
 
-    // Load audio.wav if exists
-    QString audioPath = getAudioPath(sessionId);
-    if (QFile::exists(audioPath)) {
+    // Load audio for active take if available, fallback to audio.wav
+    QString takeAudioPath;
+    if (auto *take = outSession.currentTake()) {
+        if (!take->audioFileName.isEmpty()) {
+            takeAudioPath = getTakeAudioPath(sessionId, take->audioFileName);
+        }
+        if (!take->segments.isEmpty()) {
+            outSession.segments = take->segments;
+        }
+    }
+    if (takeAudioPath.isEmpty() || !QFile::exists(takeAudioPath)) {
+        takeAudioPath = getAudioPath(sessionId);
+    }
+
+    if (QFile::exists(takeAudioPath)) {
         uint32_t dur = 0;
-        AudioUtils::loadWavToMono16k(audioPath, outPcm, dur);
+        AudioUtils::loadWavToMono16k(takeAudioPath, outPcm, dur);
         outSession.durationMs = dur;
+        if (auto *take = outSession.currentTake()) {
+            take->durationMs = dur;
+        }
     } else {
         outPcm.clear();
     }
@@ -149,14 +196,43 @@ bool SessionManager::saveSession(SessionData &session, const std::vector<float> 
     QString dir = sessionDirectory(session.id);
     QDir().mkpath(dir);
     QDir().mkpath(getTtsDirectory(session.id));
+    QString takesDir = getTakesDirectory(session.id);
+    QDir().mkpath(takesDir);
 
     session.updatedAt = QDateTime::currentDateTime();
 
-    // Save audio.wav if samples provided
+    // Save audio if samples provided
     if (!pcmSamples.empty()) {
+        qint64 durMs = static_cast<qint64>((pcmSamples.size() * 1000) / 16000);
+        session.durationMs = durMs;
+
+        // Ensure at least one take exists
+        if (session.takes.isEmpty()) {
+            SessionTake t1;
+            t1.id = "take_1";
+            t1.name = "Take 1";
+            t1.createdAt = session.createdAt;
+            t1.durationMs = durMs;
+            t1.audioFileName = "take_1.wav";
+            t1.segments = session.segments;
+            session.takes.append(t1);
+            session.currentTakeIndex = 0;
+        }
+
+        auto *curTake = session.currentTake();
+        if (curTake) {
+            curTake->durationMs = durMs;
+            curTake->segments = session.segments;
+            if (curTake->audioFileName.isEmpty()) {
+                curTake->audioFileName = curTake->id + ".wav";
+            }
+            QString takePath = takesDir + "/" + curTake->audioFileName;
+            AudioUtils::writeWavFile(takePath, pcmSamples, 16000, 1);
+        }
+
+        // Also save audio.wav at session root for backwards compatibility
         QString audioPath = getAudioPath(session.id);
         AudioUtils::writeWavFile(audioPath, pcmSamples, 16000, 1);
-        session.durationMs = static_cast<qint64>((pcmSamples.size() * 1000) / 16000);
         session.audioFileName = "audio.wav";
     }
 

@@ -15,6 +15,7 @@ public:
     ~WaveformWidget() override = default;
 
     void setAudioData(const std::vector<float> &pcmSamples, qint64 durationMs);
+    void setLiveAudioData(const std::vector<float> &pcmSamples, qint64 durationMs);
     void setSegments(const QList<AudioSegment> &segments);
     void setPlaybackPosition(qint64 positionMs);
     void setSelectedSegmentId(int segmentId);

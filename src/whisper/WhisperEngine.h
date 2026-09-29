@@ -24,6 +24,7 @@ public:
     void setThreads(int threads);
 
 public slots:
+    void preload();
     void processAudio(const std::vector<float> &pcmSamples);
     void cancel();
 
@@ -69,6 +70,7 @@ public:
     bool isRunning() const { return m_isRunning; }
 
 public slots:
+    void preloadModel(const QString &modelPath = QString());
     void transcribe(const std::vector<float> &pcmSamples);
     void cancel();
 

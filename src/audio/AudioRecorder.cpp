@@ -178,6 +178,8 @@ void AudioRecorder::onReadyRead() {
         size_t count = chunk.size() / sizeof(int16_t);
         float peak = 0.0f, rms = 0.0f;
         AudioUtils::calculateLevels(samples, count, peak, rms);
+        peak = std::min(1.0f, peak * m_inputGain);
+        rms = std::min(1.0f, rms * m_inputGain);
         emit levelChanged(peak, rms);
     } else if (m_audioFormat.sampleFormat() == QAudioFormat::Float) {
         const float *samples = reinterpret_cast<const float*>(chunk.constData());
@@ -190,12 +192,22 @@ void AudioRecorder::onReadyRead() {
             sumSq += a * a;
         }
         float rms = static_cast<float>(std::sqrt(sumSq / std::max<size_t>(count, 1)));
-        emit levelChanged(std::min(1.0f, peak), std::min(1.0f, rms));
+        peak = std::min(1.0f, peak * m_inputGain);
+        rms = std::min(1.0f, rms * m_inputGain);
+        emit levelChanged(peak, rms);
     }
 }
 
 void AudioRecorder::onTimerTick() {
-    emit durationChanged(durationMs());
+    qint64 d = durationMs();
+    emit durationChanged(d);
+
+    if (m_state == State::Recording) {
+        std::vector<float> currentChunk = processRawBufferTo16k();
+        std::vector<float> liveSamples = m_basePcmSamples;
+        liveSamples.insert(liveSamples.end(), currentChunk.begin(), currentChunk.end());
+        emit liveAudioUpdated(liveSamples, d);
+    }
 }
 
 std::vector<float> AudioRecorder::processRawBufferTo16k() {
@@ -241,5 +253,14 @@ std::vector<float> AudioRecorder::processRawBufferTo16k() {
     } else {
         result = AudioUtils::resample(monoSamples, sampleRate, 16000);
     }
+
+    if (m_inputGain != 1.0f) {
+        for (auto &s : result) {
+            s *= m_inputGain;
+            if (s > 1.0f) s = 1.0f;
+            else if (s < -1.0f) s = -1.0f;
+        }
+    }
+
     return result;
 }

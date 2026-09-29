@@ -94,10 +94,19 @@ private slots:
     void onTimelineSegmentDoubleClicked(int segmentId, qint64 startMs, qint64 endMs);
     void onNoteTimestampClicked(qint64 ms);
 
-    // Model Manager UI
+    // Model Manager UI & Config
     void onDownloadPresetRequested(const QString &presetId);
     void onAddCustomModelClicked();
     void onConvertHfModelClicked();
+    void onOpenModelManager();
+    void onOpenConfigDialog();
+    void onOpenTtsStudio();
+    void onToggleSidebarDockSide();
+
+    // Takes management
+    void onTakeSelected(int index);
+    void onNewTakeClicked();
+    void onDeleteTakeClicked();
 
 private:
     void setupUi();
@@ -110,6 +119,7 @@ private:
 
     QString formatTime(qint64 ms) const;
     void loadCurrentSessionData();
+    void updateTakesUi();
 
     // Core managers
     AudioRecorder *m_recorder = nullptr;
@@ -125,15 +135,30 @@ private:
     int m_requestingTtsSentenceId = -1;
     WorkspaceLayout m_currentLayout = WorkspaceLayout::StackedSplit;
 
-    // Splitters
+    // Splitters & Docking
     QSplitter *m_mainSplitter = nullptr;
     QWidget *m_sidebarWidget = nullptr;
+    QWidget *m_studioWidget = nullptr;
     QSplitter *m_workspaceSplitter = nullptr;
     QStackedWidget *m_workspaceStack = nullptr;
 
+    bool m_sidebarOnRight = false;
+    int m_savedSidebarWidth = 280;
+
     // UI Widgets
     QPushButton *m_sidebarToggleBtn = nullptr;
+    QPushButton *m_dockSideBtn = nullptr;
     QPushButton *m_openFolderBtn = nullptr;
+
+    QPushButton *m_manageModelsBtn = nullptr;
+    QPushButton *m_addModelBtn = nullptr;
+    QPushButton *m_configBtn = nullptr;
+    QPushButton *m_ttsStudioBtn = nullptr;
+
+    // Top Bar Session Title & Info
+    QLineEdit *m_topSessionTitleEdit = nullptr;
+    QLabel *m_sessionDateBadge = nullptr;
+    QLabel *m_sessionTakeBadge = nullptr;
 
     QComboBox *m_inputDeviceCombo = nullptr;
     QPushButton *m_recordBtn = nullptr;
@@ -142,6 +167,8 @@ private:
     QPushButton *m_pauseBtn = nullptr;
     QLabel *m_recordingTimeLabel = nullptr;
     AudioLevelMeter *m_levelMeter = nullptr;
+    QSlider *m_micGainSlider = nullptr;
+    QLabel *m_gainValueLabel = nullptr;
 
     QComboBox *m_modelCombo = nullptr;
     QComboBox *m_languageCombo = nullptr;
@@ -153,6 +180,10 @@ private:
     QPushButton *m_layoutSplitHBtn = nullptr;
     QPushButton *m_layoutTabsBtn = nullptr;
 
+    // Takes & Waveform
+    QComboBox *m_takeCombo = nullptr;
+    QPushButton *m_newTakeBtn = nullptr;
+    QPushButton *m_deleteTakeBtn = nullptr;
     WaveformWidget *m_waveformWidget = nullptr;
     QTabWidget *m_tabWidget = nullptr;
     SentenceListView *m_sentenceListView = nullptr;
