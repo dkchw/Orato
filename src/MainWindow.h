@@ -108,6 +108,9 @@ private slots:
     void onNewTakeClicked();
     void onDeleteTakeClicked();
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     void setupUi();
     void setupTopBar(QWidget *container);

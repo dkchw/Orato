@@ -14,6 +14,7 @@
 #include <QUrl>
 #include <QDir>
 #include <QDebug>
+#include <QEvent>
 #include "widgets/ModelManagerDialog.h"
 #include "widgets/ConfigDialog.h"
 #include "widgets/SessionItemDelegate.h"
@@ -22,6 +23,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent) {
     setWindowTitle(tr("Orato — Speech & Pronunciation Studio"));
     resize(1320, 880);
+    setMinimumSize(780, 520);
 
     // Modern clean dark theme with high contrast and legible typography
     setStyleSheet(
@@ -33,7 +35,7 @@ MainWindow::MainWindow(QWidget *parent)
         "QSplitter::handle:hover { background-color: #4f46e5; }"
         "QGroupBox { font-weight: 600; border: 1px solid #272a34; border-radius: 6px; margin-top: 10px; padding-top: 12px; }"
         "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #818cf8; }"
-        "QPushButton { background-color: #1e2129; border: 1px solid #333846; border-radius: 5px; padding: 6px 12px; color: #f8fafc; font-size: 12px; font-weight: 500; }"
+        "QPushButton { background-color: #1e2129; border: 1px solid #333846; border-radius: 5px; padding: 4px 8px; color: #f8fafc; font-size: 12px; font-weight: 500; }"
         "QPushButton:hover { background-color: #2a2e3b; border-color: #4f46e5; }"
         "QPushButton:pressed { background-color: #16181f; }"
         "QPushButton:disabled { background-color: #181a20; color: #64748b; border-color: #252833; }"
@@ -303,6 +305,7 @@ void MainWindow::setupSidebar(QWidget *container) {
     m_sessionListWidget->setWordWrap(true);
     m_sessionListWidget->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_sessionListWidget->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_sessionListWidget->installEventFilter(this);
     m_sessionListWidget->setStyleSheet(
         "QListWidget { background-color: #14161c; border: 1px solid #272a34; border-radius: 6px; outline: none; padding: 2px; }"
         "QListWidget::item { border: none; margin: 0; }"
@@ -329,6 +332,7 @@ void MainWindow::setupSidebar(QWidget *container) {
                 .arg(t)
                 .arg(m_currentSession.createdAt.toString("yyyy-MM-dd hh:mm:ss"))
                 .arg(formatTime(m_currentSession.durationMs)));
+            m_sessionListWidget->doItemsLayout();
         }
     });
     layout->addWidget(m_sessionTitleEdit);
@@ -337,19 +341,19 @@ void MainWindow::setupSidebar(QWidget *container) {
 void MainWindow::setupTopBar(QWidget *container) {
     auto *mainLayout = new QVBoxLayout(container);
     mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->setSpacing(6);
+    mainLayout->setSpacing(5);
 
     // =========================================================================
     // Row 1: Session Header & Studio Navigation
     // =========================================================================
     auto *sessionHeaderRow = new QHBoxLayout();
-    sessionHeaderRow->setSpacing(8);
+    sessionHeaderRow->setSpacing(6);
 
     // Sidebar toggle button
     m_sidebarToggleBtn = new QPushButton(container);
     m_sidebarToggleBtn->setIcon(QIcon(":/icons/sidebar.svg"));
     m_sidebarToggleBtn->setToolTip(tr("Toggle Left Sidebar [Ctrl+B]"));
-    m_sidebarToggleBtn->setFixedSize(30, 30);
+    m_sidebarToggleBtn->setFixedSize(28, 28);
     connect(m_sidebarToggleBtn, &QPushButton::clicked, this, &MainWindow::onSidebarToggle);
     sessionHeaderRow->addWidget(m_sidebarToggleBtn);
 
@@ -357,8 +361,8 @@ void MainWindow::setupTopBar(QWidget *container) {
     m_topSessionTitleEdit = new QLineEdit(container);
     m_topSessionTitleEdit->setPlaceholderText(tr("Untitled Session"));
     m_topSessionTitleEdit->setStyleSheet(
-        "QLineEdit { background: #181b24; border: 1px solid #2d3242; border-radius: 6px; padding: 4px 10px; "
-        "font-size: 13px; font-weight: 700; color: #f8fafc; min-width: 180px; }"
+        "QLineEdit { background: #181b24; border: 1px solid #2d3242; border-radius: 5px; padding: 3px 8px; "
+        "font-size: 13px; font-weight: 700; color: #f8fafc; min-width: 120px; }"
         "QLineEdit:focus { border-color: #6366f1; background: #202431; }"
     );
     m_topSessionTitleEdit->setToolTip(tr("Current session name. Click to edit."));
@@ -375,6 +379,7 @@ void MainWindow::setupTopBar(QWidget *container) {
                 .arg(t)
                 .arg(m_currentSession.createdAt.toString("yyyy-MM-dd hh:mm:ss"))
                 .arg(formatTime(m_currentSession.durationMs)));
+            m_sessionListWidget->doItemsLayout();
         }
     });
     sessionHeaderRow->addWidget(m_topSessionTitleEdit, 1);
@@ -382,25 +387,28 @@ void MainWindow::setupTopBar(QWidget *container) {
     // Date Badge
     m_sessionDateBadge = new QLabel(container);
     m_sessionDateBadge->setStyleSheet(
-        "background: #1e2230; color: #94a3b8; border: 1px solid #2a3042; border-radius: 4px; padding: 3px 8px; font-size: 11px;"
+        "background: #1e2230; color: #94a3b8; border: 1px solid #2a3042; border-radius: 4px; padding: 2px 6px; font-size: 11px;"
     );
     sessionHeaderRow->addWidget(m_sessionDateBadge);
 
     // Take Status Badge
     m_sessionTakeBadge = new QLabel(container);
     m_sessionTakeBadge->setStyleSheet(
-        "background: #1e2230; color: #a5b4fc; border: 1px solid #3730a3; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 600;"
+        "background: #1e2230; color: #a5b4fc; border: 1px solid #3730a3; border-radius: 4px; padding: 2px 6px; font-size: 11px; font-weight: 600;"
     );
     sessionHeaderRow->addWidget(m_sessionTakeBadge);
 
-    sessionHeaderRow->addSpacing(8);
+    sessionHeaderRow->addSpacing(4);
 
     // Layout switcher buttons
-    sessionHeaderRow->addWidget(new QLabel(tr("Layout:"), container));
+    auto *layoutLbl = new QLabel(tr("Layout:"), container);
+    layoutLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
+    sessionHeaderRow->addWidget(layoutLbl);
+
     m_layoutSplitVBtn = new QPushButton(container);
     m_layoutSplitVBtn->setIcon(QIcon(":/icons/layout-split-v.svg"));
     m_layoutSplitVBtn->setToolTip(tr("Stacked View (Notes on top, Transcript under it)"));
-    m_layoutSplitVBtn->setFixedSize(28, 28);
+    m_layoutSplitVBtn->setFixedSize(26, 26);
     connect(m_layoutSplitVBtn, &QPushButton::clicked, this, [this]() {
         setWorkspaceLayout(WorkspaceLayout::StackedSplit);
     });
@@ -409,7 +417,7 @@ void MainWindow::setupTopBar(QWidget *container) {
     m_layoutSplitHBtn = new QPushButton(container);
     m_layoutSplitHBtn->setIcon(QIcon(":/icons/layout-split-h.svg"));
     m_layoutSplitHBtn->setToolTip(tr("Side-by-Side View (Notes left, Transcript right)"));
-    m_layoutSplitHBtn->setFixedSize(28, 28);
+    m_layoutSplitHBtn->setFixedSize(26, 26);
     connect(m_layoutSplitHBtn, &QPushButton::clicked, this, [this]() {
         setWorkspaceLayout(WorkspaceLayout::SideSplit);
     });
@@ -418,18 +426,19 @@ void MainWindow::setupTopBar(QWidget *container) {
     m_layoutTabsBtn = new QPushButton(container);
     m_layoutTabsBtn->setIcon(QIcon(":/icons/layout-tabs.svg"));
     m_layoutTabsBtn->setToolTip(tr("Tabs View (Sentences, Notes, TTS Studio, Models)"));
-    m_layoutTabsBtn->setFixedSize(28, 28);
+    m_layoutTabsBtn->setFixedSize(26, 26);
     connect(m_layoutTabsBtn, &QPushButton::clicked, this, [this]() {
         setWorkspaceLayout(WorkspaceLayout::Tabbed);
     });
     sessionHeaderRow->addWidget(m_layoutTabsBtn);
 
-    sessionHeaderRow->addSpacing(6);
+    sessionHeaderRow->addSpacing(4);
 
     // Dedicated Models Manager Button
     m_manageModelsBtn = new QPushButton(tr("Models"), container);
     m_manageModelsBtn->setIcon(QIcon(":/icons/cpu.svg"));
     m_manageModelsBtn->setToolTip(tr("Open Whisper Models Manager (Download presets, import & delete models)"));
+    m_manageModelsBtn->setStyleSheet("padding: 3px 8px; font-size: 11px;");
     connect(m_manageModelsBtn, &QPushButton::clicked, this, &MainWindow::onOpenModelManager);
     sessionHeaderRow->addWidget(m_manageModelsBtn);
 
@@ -437,6 +446,7 @@ void MainWindow::setupTopBar(QWidget *container) {
     m_configBtn = new QPushButton(tr("Config"), container);
     m_configBtn->setIcon(QIcon(":/icons/settings.svg"));
     m_configBtn->setToolTip(tr("Configure Whisper STT, Pocket TTS, threads & dock position"));
+    m_configBtn->setStyleSheet("padding: 3px 8px; font-size: 11px;");
     connect(m_configBtn, &QPushButton::clicked, this, &MainWindow::onOpenConfigDialog);
     sessionHeaderRow->addWidget(m_configBtn);
 
@@ -444,21 +454,26 @@ void MainWindow::setupTopBar(QWidget *container) {
     m_ttsStudioBtn = new QPushButton(tr("TTS"), container);
     m_ttsStudioBtn->setIcon(QIcon(":/icons/volume.svg"));
     m_ttsStudioBtn->setToolTip(tr("Open Pocket TTS Speech Synthesis Studio"));
+    m_ttsStudioBtn->setStyleSheet("padding: 3px 8px; font-size: 11px;");
     connect(m_ttsStudioBtn, &QPushButton::clicked, this, &MainWindow::onOpenTtsStudio);
     sessionHeaderRow->addWidget(m_ttsStudioBtn);
 
     mainLayout->addLayout(sessionHeaderRow);
 
     // =========================================================================
-    // Row 2: Audio Recording & STT Toolbar
+    // Row 2: Audio Recording Controls
     // =========================================================================
     auto *audioRow = new QHBoxLayout();
     audioRow->setSpacing(6);
 
     // Audio input selector
-    audioRow->addWidget(new QLabel(tr("Input:"), container));
+    auto *inputLbl = new QLabel(tr("Input:"), container);
+    inputLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
+    audioRow->addWidget(inputLbl);
+
     m_inputDeviceCombo = new QComboBox(container);
-    m_inputDeviceCombo->setMinimumWidth(150);
+    m_inputDeviceCombo->setMinimumWidth(110);
+    m_inputDeviceCombo->setMaximumWidth(170);
     connect(m_inputDeviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onAudioInputDeviceChanged);
     audioRow->addWidget(m_inputDeviceCombo);
@@ -466,14 +481,14 @@ void MainWindow::setupTopBar(QWidget *container) {
     auto *refreshDevBtn = new QPushButton(container);
     refreshDevBtn->setIcon(QIcon(":/icons/refresh-cw.svg"));
     refreshDevBtn->setToolTip(tr("Refresh Audio Devices"));
-    refreshDevBtn->setFixedSize(28, 28);
+    refreshDevBtn->setFixedSize(26, 26);
     connect(refreshDevBtn, &QPushButton::clicked, this, &MainWindow::refreshAudioDevices);
     audioRow->addWidget(refreshDevBtn);
 
     // Record Button (New Take)
     m_recordBtn = new QPushButton(tr("Record"), container);
     m_recordBtn->setIcon(QIcon(":/icons/record.svg"));
-    m_recordBtn->setStyleSheet("background-color: #dc2626; color: white; font-weight: 600; padding: 5px 12px;");
+    m_recordBtn->setStyleSheet("background-color: #dc2626; color: white; font-weight: 600; padding: 4px 10px;");
     m_recordBtn->setToolTip(tr("Record a fresh take (replaces previous audio)"));
     connect(m_recordBtn, &QPushButton::clicked, this, &MainWindow::onRecordToggle);
     audioRow->addWidget(m_recordBtn);
@@ -481,7 +496,7 @@ void MainWindow::setupTopBar(QWidget *container) {
     // Append Record Button (Record More / Multi-sentence)
     m_recordAppendBtn = new QPushButton(tr("Append"), container);
     m_recordAppendBtn->setIcon(QIcon(":/icons/mic-plus.svg"));
-    m_recordAppendBtn->setStyleSheet("background-color: #b91c1c; color: white; font-weight: 500; padding: 5px 10px;");
+    m_recordAppendBtn->setStyleSheet("background-color: #b91c1c; color: white; font-weight: 500; padding: 4px 8px;");
     m_recordAppendBtn->setToolTip(tr("Record additional sentences/paragraphs to existing session audio"));
     connect(m_recordAppendBtn, &QPushButton::clicked, this, &MainWindow::onRecordAppendToggle);
     audioRow->addWidget(m_recordAppendBtn);
@@ -490,6 +505,7 @@ void MainWindow::setupTopBar(QWidget *container) {
     m_retakeBtn = new QPushButton(tr("Retake"), container);
     m_retakeBtn->setIcon(QIcon(":/icons/rotate-ccw.svg"));
     m_retakeBtn->setToolTip(tr("Clear existing recording and prepare for a fresh take"));
+    m_retakeBtn->setStyleSheet("padding: 4px 8px;");
     connect(m_retakeBtn, &QPushButton::clicked, this, &MainWindow::onRetake);
     audioRow->addWidget(m_retakeBtn);
 
@@ -497,26 +513,30 @@ void MainWindow::setupTopBar(QWidget *container) {
     m_pauseBtn->setIcon(QIcon(":/icons/pause.svg"));
     m_pauseBtn->setToolTip(tr("Pause / Resume recording"));
     m_pauseBtn->setEnabled(false);
-    m_pauseBtn->setFixedSize(28, 28);
+    m_pauseBtn->setFixedSize(26, 26);
     connect(m_pauseBtn, &QPushButton::clicked, this, &MainWindow::onPauseToggle);
     audioRow->addWidget(m_pauseBtn);
 
     m_recordingTimeLabel = new QLabel("00:00", container);
-    m_recordingTimeLabel->setStyleSheet("font-family: monospace; font-size: 13px; font-weight: bold; color: #f87171;");
+    m_recordingTimeLabel->setStyleSheet("font-family: monospace; font-size: 12px; font-weight: bold; color: #f87171;");
     audioRow->addWidget(m_recordingTimeLabel);
 
     // Live VU Meter
     m_levelMeter = new AudioLevelMeter(container);
-    m_levelMeter->setFixedWidth(65);
+    m_levelMeter->setFixedWidth(50);
+    m_levelMeter->setFixedHeight(16);
     audioRow->addWidget(m_levelMeter);
 
     // Mic Boost / Input Gain
-    audioRow->addSpacing(2);
-    audioRow->addWidget(new QLabel(tr("Gain:"), container));
+    audioRow->addSpacing(4);
+    auto *gainLbl = new QLabel(tr("Gain:"), container);
+    gainLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
+    audioRow->addWidget(gainLbl);
+
     m_micGainSlider = new QSlider(Qt::Horizontal, container);
     m_micGainSlider->setRange(10, 40);
     m_micGainSlider->setValue(static_cast<int>(m_recorder->inputGain() * 10.0f));
-    m_micGainSlider->setFixedWidth(60);
+    m_micGainSlider->setFixedWidth(50);
     m_micGainSlider->setToolTip(tr("Microphone input boost (1.0x - 4.0x)"));
     m_gainValueLabel = new QLabel(QString("%1x").arg(m_recorder->inputGain(), 0, 'f', 1), container);
     m_gainValueLabel->setStyleSheet("font-family: monospace; font-size: 11px; color: #a5b4fc; font-weight: 600;");
@@ -529,24 +549,38 @@ void MainWindow::setupTopBar(QWidget *container) {
     audioRow->addWidget(m_gainValueLabel);
 
     audioRow->addStretch();
+    mainLayout->addLayout(audioRow);
+
+    // =========================================================================
+    // Row 3: Whisper STT & Transcription Controls
+    // =========================================================================
+    auto *sttRow = new QHBoxLayout();
+    sttRow->setSpacing(6);
 
     // Whisper Model selector
-    audioRow->addWidget(new QLabel(tr("Model:"), container));
+    auto *modelLbl = new QLabel(tr("Model:"), container);
+    modelLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
+    sttRow->addWidget(modelLbl);
+
     m_modelCombo = new QComboBox(container);
-    m_modelCombo->setMinimumWidth(160);
+    m_modelCombo->setMinimumWidth(140);
+    m_modelCombo->setMaximumWidth(220);
     connect(m_modelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onModelSelectionChanged);
-    audioRow->addWidget(m_modelCombo);
+    sttRow->addWidget(m_modelCombo);
 
     // Quick Add Model Button
     m_addModelBtn = new QPushButton(container);
     m_addModelBtn->setIcon(QIcon(":/icons/folder-plus.svg"));
     m_addModelBtn->setToolTip(tr("Import Local Whisper Model (.bin / .gguf)"));
-    m_addModelBtn->setFixedSize(28, 28);
+    m_addModelBtn->setFixedSize(26, 26);
     connect(m_addModelBtn, &QPushButton::clicked, this, &MainWindow::onAddCustomModelClicked);
-    audioRow->addWidget(m_addModelBtn);
+    sttRow->addWidget(m_addModelBtn);
 
-    audioRow->addWidget(new QLabel(tr("Lang:"), container));
+    auto *langLbl = new QLabel(tr("Lang:"), container);
+    langLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
+    sttRow->addWidget(langLbl);
+
     m_languageCombo = new QComboBox(container);
     m_languageCombo->addItem("German (de)", "de");
     m_languageCombo->addItem("English (en)", "en");
@@ -554,32 +588,35 @@ void MainWindow::setupTopBar(QWidget *container) {
     m_languageCombo->addItem("French (fr)", "fr");
     m_languageCombo->addItem("Spanish (es)", "es");
     m_languageCombo->addItem("Italian (it)", "it");
+    m_languageCombo->setMinimumWidth(100);
+    m_languageCombo->setMaximumWidth(140);
     connect(m_languageCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int idx) {
         QString lang = m_languageCombo->itemData(idx).toString();
         m_currentSession.language = lang;
         m_whisper->setLanguage(lang);
     });
-    audioRow->addWidget(m_languageCombo);
+    sttRow->addWidget(m_languageCombo);
 
     // Transcribe Button
     m_transcribeBtn = new QPushButton(tr("Transcribe"), container);
     m_transcribeBtn->setIcon(QIcon(":/icons/zap.svg"));
-    m_transcribeBtn->setStyleSheet("background-color: #4f46e5; color: white; font-weight: 600; padding: 5px 14px;");
+    m_transcribeBtn->setStyleSheet("background-color: #4f46e5; color: white; font-weight: 600; padding: 4px 12px;");
     connect(m_transcribeBtn, &QPushButton::clicked, this, &MainWindow::onTranscribeClicked);
-    audioRow->addWidget(m_transcribeBtn);
+    sttRow->addWidget(m_transcribeBtn);
 
-    mainLayout->addLayout(audioRow);
+    sttRow->addStretch();
+    mainLayout->addLayout(sttRow);
 
     // Transcribe Progress Bar
     m_transcribeProgress = new QProgressBar(container);
     m_transcribeProgress->setRange(0, 100);
     m_transcribeProgress->setValue(0);
-    m_transcribeProgress->setFixedHeight(5);
+    m_transcribeProgress->setFixedHeight(3);
     m_transcribeProgress->setTextVisible(false);
     m_transcribeProgress->setStyleSheet(
-        "QProgressBar { background: #1a1c23; border: none; border-radius: 2px; }"
-        "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #818cf8, stop:1 #34d399); border-radius: 2px; }"
+        "QProgressBar { background: #1a1c23; border: none; border-radius: 1px; }"
+        "QProgressBar::chunk { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #818cf8, stop:1 #34d399); border-radius: 1px; }"
     );
     m_transcribeProgress->hide();
     mainLayout->addWidget(m_transcribeProgress);
@@ -597,12 +634,13 @@ void MainWindow::setupWaveformArea(QWidget *container) {
     timelineTitle->setStyleSheet("font-size: 11px; font-weight: 600; color: #818cf8;");
     topRow->addWidget(timelineTitle);
 
-    topRow->addSpacing(14);
+    topRow->addSpacing(10);
 
     // Takes control bar
     topRow->addWidget(new QLabel(tr("Takes:"), container));
     m_takeCombo = new QComboBox(container);
-    m_takeCombo->setMinimumWidth(150);
+    m_takeCombo->setMinimumWidth(100);
+    m_takeCombo->setMaximumWidth(160);
     m_takeCombo->setToolTip(tr("Select active take"));
     connect(m_takeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onTakeSelected);
@@ -657,8 +695,8 @@ void MainWindow::setupWaveformArea(QWidget *container) {
 
 void MainWindow::setupBottomBar(QWidget *container) {
     auto *layout = new QVBoxLayout(container);
-    layout->setContentsMargins(4, 4, 4, 4);
-    layout->setSpacing(6);
+    layout->setContentsMargins(4, 2, 4, 4);
+    layout->setSpacing(4);
 
     // Scrubber slider row
     auto *sliderRow = new QHBoxLayout();
@@ -681,49 +719,59 @@ void MainWindow::setupBottomBar(QWidget *container) {
 
     // Playback buttons
     auto *ctrlRow = new QHBoxLayout();
-    ctrlRow->setSpacing(6);
+    ctrlRow->setSpacing(4);
 
     m_playBtn = new QPushButton(tr("Play"), container);
     m_playBtn->setIcon(QIcon(":/icons/play.svg"));
-    m_playBtn->setStyleSheet("background-color: #059669; color: white; font-weight: 600; min-width: 80px;");
+    m_playBtn->setStyleSheet("background-color: #059669; color: white; font-weight: 600; min-width: 65px; padding: 4px 8px;");
     connect(m_playBtn, &QPushButton::clicked, this, &MainWindow::onPlayToggle);
     ctrlRow->addWidget(m_playBtn);
 
     m_stopBtn = new QPushButton(container);
     m_stopBtn->setIcon(QIcon(":/icons/stop.svg"));
     m_stopBtn->setToolTip(tr("Stop playback"));
-    m_stopBtn->setFixedSize(32, 30);
+    m_stopBtn->setFixedSize(28, 28);
     connect(m_stopBtn, &QPushButton::clicked, this, &MainWindow::onStop);
     ctrlRow->addWidget(m_stopBtn);
 
     m_skipBackBtn = new QPushButton(tr("-5s"), container);
     m_skipBackBtn->setIcon(QIcon(":/icons/skip-back.svg"));
+    m_skipBackBtn->setToolTip(tr("Skip backward 5s"));
+    m_skipBackBtn->setStyleSheet("padding: 4px 6px;");
     connect(m_skipBackBtn, &QPushButton::clicked, this, [this]() { m_player->skipBackward(5000); });
     ctrlRow->addWidget(m_skipBackBtn);
 
     m_skipForwardBtn = new QPushButton(tr("+5s"), container);
     m_skipForwardBtn->setIcon(QIcon(":/icons/skip-forward.svg"));
+    m_skipForwardBtn->setToolTip(tr("Skip forward 5s"));
+    m_skipForwardBtn->setStyleSheet("padding: 4px 6px;");
     connect(m_skipForwardBtn, &QPushButton::clicked, this, [this]() { m_player->skipForward(5000); });
     ctrlRow->addWidget(m_skipForwardBtn);
 
-    ctrlRow->addSpacing(10);
+    ctrlRow->addSpacing(6);
 
-    m_replaySentenceBtn = new QPushButton(tr("Replay Sentence [R]"), container);
+    m_replaySentenceBtn = new QPushButton(tr("Replay [R]"), container);
     m_replaySentenceBtn->setIcon(QIcon(":/icons/replay.svg"));
-    m_replaySentenceBtn->setStyleSheet("background-color: #4338ca; color: white; font-weight: 600;");
+    m_replaySentenceBtn->setToolTip(tr("Replay currently selected sentence [R]"));
+    m_replaySentenceBtn->setStyleSheet("background-color: #4338ca; color: white; font-weight: 600; padding: 4px 8px;");
     connect(m_replaySentenceBtn, &QPushButton::clicked, this, &MainWindow::onReplayCurrentSentence);
     ctrlRow->addWidget(m_replaySentenceBtn);
 
-    m_loopSentenceBtn = new QPushButton(tr("Loop Sentence"), container);
+    m_loopSentenceBtn = new QPushButton(tr("Loop"), container);
     m_loopSentenceBtn->setIcon(QIcon(":/icons/loop.svg"));
+    m_loopSentenceBtn->setToolTip(tr("Loop currently selected sentence continuously"));
     m_loopSentenceBtn->setCheckable(true);
+    m_loopSentenceBtn->setStyleSheet("padding: 4px 8px;");
     connect(m_loopSentenceBtn, &QPushButton::toggled, this, &MainWindow::onLoopSentenceToggle);
     ctrlRow->addWidget(m_loopSentenceBtn);
 
     ctrlRow->addStretch();
 
     // Speed Selector
-    ctrlRow->addWidget(new QLabel(tr("Speed:"), container));
+    auto *speedLbl = new QLabel(tr("Speed:"), container);
+    speedLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
+    ctrlRow->addWidget(speedLbl);
+
     m_speedCombo = new QComboBox(container);
     m_speedCombo->addItem("0.5x", 0.5);
     m_speedCombo->addItem("0.75x", 0.75);
@@ -732,23 +780,24 @@ void MainWindow::setupBottomBar(QWidget *container) {
     m_speedCombo->addItem("1.5x", 1.5);
     m_speedCombo->addItem("2.0x", 2.0);
     m_speedCombo->setCurrentIndex(2); // 1.0x
+    m_speedCombo->setFixedWidth(68);
     connect(m_speedCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onSpeedChanged);
     ctrlRow->addWidget(m_speedCombo);
 
-    ctrlRow->addSpacing(10);
+    ctrlRow->addSpacing(6);
 
     // Volume & Mute
     m_muteBtn = new QPushButton(container);
     m_muteBtn->setIcon(QIcon(":/icons/volume.svg"));
-    m_muteBtn->setFixedSize(30, 30);
+    m_muteBtn->setFixedSize(28, 28);
     connect(m_muteBtn, &QPushButton::clicked, this, &MainWindow::onMuteToggle);
     ctrlRow->addWidget(m_muteBtn);
 
     m_volumeSlider = new QSlider(Qt::Horizontal, container);
     m_volumeSlider->setRange(0, 100);
     m_volumeSlider->setValue(100);
-    m_volumeSlider->setFixedWidth(80);
+    m_volumeSlider->setFixedWidth(65);
     connect(m_volumeSlider, &QSlider::valueChanged, this, &MainWindow::onVolumeSliderChanged);
     ctrlRow->addWidget(m_volumeSlider);
 
@@ -1093,7 +1142,7 @@ void MainWindow::onRecordToggle() {
         m_recorder->stopRecording(audioPath);
         m_recordBtn->setText(tr("Record"));
         m_recordBtn->setIcon(QIcon(":/icons/record.svg"));
-        m_recordBtn->setStyleSheet("background-color: #dc2626; color: white; font-weight: 600; padding: 6px 14px;");
+        m_recordBtn->setStyleSheet("background-color: #dc2626; color: white; font-weight: 600; padding: 4px 10px;");
         m_recordAppendBtn->setEnabled(true);
         m_pauseBtn->setEnabled(false);
     } else {
@@ -1103,7 +1152,7 @@ void MainWindow::onRecordToggle() {
         if (m_recorder->startRecording(dev, false)) {
             m_recordBtn->setText(tr("Stop"));
             m_recordBtn->setIcon(QIcon(":/icons/stop.svg"));
-            m_recordBtn->setStyleSheet("background-color: #b91c1c; color: #fef08a; font-weight: 700; border: 2px solid #eab308;");
+            m_recordBtn->setStyleSheet("background-color: #b91c1c; color: #fef08a; font-weight: 700; border: 2px solid #eab308; padding: 4px 10px;");
             m_recordAppendBtn->setEnabled(false);
             m_pauseBtn->setEnabled(true);
             m_pauseBtn->setIcon(QIcon(":/icons/pause.svg"));
@@ -1118,7 +1167,7 @@ void MainWindow::onRecordAppendToggle() {
         m_recorder->stopRecording(audioPath);
         m_recordAppendBtn->setText(tr("Append"));
         m_recordAppendBtn->setIcon(QIcon(":/icons/mic-plus.svg"));
-        m_recordAppendBtn->setStyleSheet("background-color: #b91c1c; color: white; font-weight: 500;");
+        m_recordAppendBtn->setStyleSheet("background-color: #b91c1c; color: white; font-weight: 500; padding: 4px 8px;");
         m_recordBtn->setEnabled(true);
         m_pauseBtn->setEnabled(false);
     } else {
@@ -1131,7 +1180,7 @@ void MainWindow::onRecordAppendToggle() {
         if (m_recorder->startRecording(dev, true)) {
             m_recordAppendBtn->setText(tr("Stop"));
             m_recordAppendBtn->setIcon(QIcon(":/icons/stop.svg"));
-            m_recordAppendBtn->setStyleSheet("background-color: #7f1d1d; color: #fef08a; font-weight: 700; border: 2px solid #f97316;");
+            m_recordAppendBtn->setStyleSheet("background-color: #7f1d1d; color: #fef08a; font-weight: 700; border: 2px solid #f97316; padding: 4px 8px;");
             m_recordBtn->setEnabled(false);
             m_pauseBtn->setEnabled(true);
             statusBar()->showMessage(tr("Appending to session audio (multi-paragraph mode)..."));
@@ -1237,11 +1286,11 @@ void MainWindow::onPlaybackStateChanged(QMediaPlayer::PlaybackState state) {
     if (state == QMediaPlayer::PlayingState) {
         m_playBtn->setText(tr("Pause"));
         m_playBtn->setIcon(QIcon(":/icons/pause.svg"));
-        m_playBtn->setStyleSheet("background-color: #d97706; color: white; font-weight: 600; min-width: 80px;");
+        m_playBtn->setStyleSheet("background-color: #d97706; color: white; font-weight: 600; min-width: 65px; padding: 4px 8px;");
     } else {
         m_playBtn->setText(tr("Play"));
         m_playBtn->setIcon(QIcon(":/icons/play.svg"));
-        m_playBtn->setStyleSheet("background-color: #059669; color: white; font-weight: 600; min-width: 80px;");
+        m_playBtn->setStyleSheet("background-color: #059669; color: white; font-weight: 600; min-width: 65px; padding: 4px 8px;");
     }
 }
 
@@ -1717,4 +1766,11 @@ QString MainWindow::formatTime(qint64 ms) const {
         .arg(minutes, 2, 10, QChar('0'))
         .arg(seconds, 2, 10, QChar('0'))
         .arg(tenths);
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == m_sessionListWidget && event->type() == QEvent::Resize) {
+        m_sessionListWidget->doItemsLayout();
+    }
+    return QMainWindow::eventFilter(watched, event);
 }

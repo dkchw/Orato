@@ -31,7 +31,6 @@ ModelManagerDialog::ModelManagerDialog(ModelManager *modelManager, WhisperEngine
     connect(m_modelManager, &ModelManager::downloadCompleted, this, [this](const QString &path) {
         m_statusLabel->setText(tr("Successfully installed: %1").arg(path));
         m_progressBar->hide();
-        refreshAll();
     });
     connect(m_modelManager, &ModelManager::downloadFailed, this, [this](const QString &err) {
         m_statusLabel->setText(tr("Download error: %1").arg(err));
@@ -45,7 +44,6 @@ ModelManagerDialog::ModelManagerDialog(ModelManager *modelManager, WhisperEngine
         m_convertBtn->setEnabled(true);
         if (ok) {
             m_statusLabel->setText(tr("Conversion completed successfully!"));
-            refreshAll();
         } else {
             m_statusLabel->setText(tr("Conversion failed: %1").arg(res));
         }
@@ -79,7 +77,7 @@ void ModelManagerDialog::setupUi() {
 
     auto *refreshBtn = new QPushButton(tr("Refresh"), this);
     refreshBtn->setIcon(QIcon(":/icons/refresh-cw.svg"));
-    connect(refreshBtn, &QPushButton::clicked, this, &ModelManagerDialog::refreshAll);
+    connect(refreshBtn, &QPushButton::clicked, m_modelManager, &ModelManager::refreshInstalledModels);
     topBar->addWidget(refreshBtn);
 
     mainLayout->addLayout(topBar);
@@ -162,7 +160,6 @@ void ModelManagerDialog::setupUi() {
 }
 
 void ModelManagerDialog::refreshAll() {
-    m_modelManager->refreshInstalledModels();
     updateInstalledTable();
     updatePresetsTable();
 }

@@ -11,16 +11,20 @@ SessionItemDelegate::SessionItemDelegate(QObject *parent)
 QSize SessionItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
     int viewWidth = option.rect.width();
     if (viewWidth <= 0 && option.widget) {
-        viewWidth = option.widget->width();
         auto *list = qobject_cast<const QAbstractScrollArea*>(option.widget);
-        if (list && list->verticalScrollBar() && list->verticalScrollBar()->isVisible()) {
-            viewWidth -= list->verticalScrollBar()->width();
+        if (list && list->viewport()) {
+            viewWidth = list->viewport()->width();
+        } else {
+            viewWidth = option.widget->width();
         }
     }
+    if (viewWidth <= 0) {
+        viewWidth = 240;
+    }
 
-    // Usable width for text inside the card:
-    // Outer card margins (4px left, 4px right) + inner card padding (12px left, 10px right)
-    int availTextWidth = std::max(100, viewWidth - 30);
+    // Usable width inside card:
+    // Outer card margins (4px left, 4px right) + inner card padding (14px left, 10px right)
+    int availTextWidth = std::max(60, viewWidth - 32);
 
     QString title = index.data(Qt::DisplayRole).toString();
     if (title.trimmed().isEmpty()) {
@@ -43,7 +47,7 @@ QSize SessionItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QM
 
     // 8px top padding + titleHeight + 4px spacing + metaHeight + 8px bottom padding + 6px card margin
     int totalHeight = 8 + titleHeight + 4 + metaHeight + 8 + 6;
-    return QSize(viewWidth > 0 ? viewWidth : 250, std::max(totalHeight, 56));
+    return QSize(viewWidth, std::max(totalHeight, 54));
 }
 
 void SessionItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const {
@@ -55,6 +59,7 @@ void SessionItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
 
     // Outer card bounds
     QRect cardRect = option.rect.adjusted(4, 3, -4, -3);
+    painter->setClipRect(cardRect);
 
     // Card background
     QColor bgColor = isSelected ? QColor("#222738") : (isHovered ? QColor("#1c1f2b") : QColor("#151821"));
@@ -82,26 +87,26 @@ void SessionItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
     QString durStr = index.data(Qt::UserRole + 2).toString();
     int takesCount = index.data(Qt::UserRole + 4).toInt();
 
-    // 1. Draw Title
+    // 1. Meta Row at bottom of card
+    QFont metaFont = option.font;
+    metaFont.setPointSize(std::max(8, metaFont.pointSize() - 1));
+    QFontMetrics fmMeta(metaFont);
+    int metaHeight = fmMeta.height();
+    QRect metaBox(contentRect.left(), contentRect.bottom() - metaHeight, contentRect.width(), metaHeight);
+
+    // 2. Title Area filling space above meta row
     QFont titleFont = option.font;
     titleFont.setBold(true);
     titleFont.setPointSize(titleFont.pointSize() + 1);
     painter->setFont(titleFont);
     painter->setPen(isSelected ? QColor("#ffffff") : QColor("#f1f5f9"));
 
-    QFontMetrics fmTitle(titleFont);
-    QRect titleBox = fmTitle.boundingRect(contentRect.left(), contentRect.top(), contentRect.width(), 10000, Qt::TextWordWrap, title);
-    painter->drawText(titleBox, Qt::TextWordWrap, title);
+    QRect titleArea(contentRect.left(), contentRect.top(), contentRect.width(), std::max(fmMeta.height(), metaBox.top() - contentRect.top() - 3));
+    painter->drawText(titleArea, Qt::TextWordWrap | Qt::AlignLeft | Qt::AlignTop, title);
 
-    // 2. Draw Meta Row underneath
-    QFont metaFont = option.font;
-    metaFont.setPointSize(std::max(8, metaFont.pointSize() - 1));
+    // Draw Meta Text
     painter->setFont(metaFont);
     painter->setPen(isSelected ? QColor("#c7d2fe") : QColor("#94a3b8"));
-
-    QFontMetrics fmMeta(metaFont);
-    int metaY = titleBox.bottom() + 4;
-    QRect metaBox(contentRect.left(), metaY, contentRect.width(), fmMeta.height());
 
     QString metaText = durStr.isEmpty() ? dateStr : QString("%1  •  %2").arg(dateStr, durStr);
     if (takesCount > 1) {
