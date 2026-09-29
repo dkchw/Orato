@@ -14,7 +14,12 @@
         packages.default = pkgs.stdenv.mkDerivation {
           pname = "sound-recorder";
           version = "1.0.0";
-          src = ./.;
+          src = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter = path: type:
+              let base = baseNameOf path; in
+              !(base == "build" || base == ".venv" || base == ".cache" || base == "result");
+          };
 
           nativeBuildInputs = [
             pkgs.cmake
