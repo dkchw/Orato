@@ -2,7 +2,7 @@
 Name=Orato Studio
 Comment=Speech & Pronunciation Studio with Whisper.cpp, Pocket TTS, and Markdown Notes
 Exec=orato
-Icon=audio-input-microphone
+Icon=orato
 Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;Education;Utility;

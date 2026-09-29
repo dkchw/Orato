@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(orato VERSION 1.2.5 LANGUAGES C CXX)
+project(orato VERSION 2.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -98,3 +98,8 @@ target_link_libraries(orato PRIVATE
 )
 
 install(TARGETS orato DESTINATION bin)
+install(FILES orato.desktop DESTINATION share/applications)
+install(FILES resources/icons/orato.png DESTINATION share/pixmaps)
+foreach(SIZE 16 32 48 64 128 256 512)
+    install(FILES resources/icons/orato-${SIZE}.png DESTINATION share/icons/hicolor/${SIZE}x${SIZE}/apps RENAME orato.png)
+endforeach()

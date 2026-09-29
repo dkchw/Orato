@@ -24,6 +24,7 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent) {
     setWindowTitle(tr("Orato — Speech & Pronunciation Studio"));
+    setWindowIcon(QIcon(":/icons/orato.png"));
     resize(1320, 880);
     setMinimumSize(780, 520);
 

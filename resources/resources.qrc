@@ -35,5 +35,13 @@
     <file alias="download.svg">icons/download.svg</file>
     <file alias="folder-plus.svg">icons/folder-plus.svg</file>
     <file alias="dock.svg">icons/dock.svg</file>
+    <file alias="orato.png">icons/orato.png</file>
+    <file alias="orato-16.png">icons/orato-16.png</file>
+    <file alias="orato-32.png">icons/orato-32.png</file>
+    <file alias="orato-48.png">icons/orato-48.png</file>
+    <file alias="orato-64.png">icons/orato-64.png</file>
+    <file alias="orato-128.png">icons/orato-128.png</file>
+    <file alias="orato-256.png">icons/orato-256.png</file>
+    <file alias="orato-512.png">icons/orato-512.png</file>
 </qresource>
 </RCC>
