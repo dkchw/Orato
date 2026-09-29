@@ -1,10 +1,10 @@
 [Desktop Entry]
-Name=Recorder Studio
+Name=Orato Studio
 Comment=Speech & Pronunciation Studio with Whisper.cpp, Pocket TTS, and Markdown Notes
-Exec=recorder
+Exec=orato
 Icon=audio-input-microphone
 Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;Education;Utility;
-Keywords=audio;record;speech;whisper;tts;training;notes;
+Keywords=audio;record;speech;whisper;tts;training;notes;orato;
 StartupNotify=true

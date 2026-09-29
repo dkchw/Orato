@@ -1,30 +1,30 @@
 # Installation & Usage Guide 🛠️
 
-This guide explains how to install, build, and run **Recorder** on your NixOS system using flakes, as well as how to clean up build artifacts.
+This guide explains how to install, build, and run **Orato** on your NixOS system using flakes, as well as how to clean up build artifacts.
 
 ---
 
 ## 1. System Installation on NixOS
 
 ### Option A: Declarative via NixOS Configuration (`configuration.nix` with Flakes)
-If your NixOS system is managed with a flake, add `Recorder` as an input:
+If your NixOS system is managed with a flake, add `orato` as an input:
 
 ```nix
 # /etc/nixos/flake.nix
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    recorder.url = "github:dkchw/Recorder";
+    orato.url = "github:dkchw/Orato";
   };
 
-  outputs = { self, nixpkgs, recorder, ... }: {
+  outputs = { self, nixpkgs, orato, ... }: {
     nixosConfigurations.myhostname = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
         ./configuration.nix
         {
           environment.systemPackages = [
-            recorder.packages.x86_64-linux.default
+            orato.packages.x86_64-linux.default
           ];
         }
       ];
@@ -44,7 +44,7 @@ Add to your `home.nix`:
 ```nix
 { pkgs, inputs, ... }: {
   home.packages = [
-    inputs.recorder.packages.${pkgs.system}.default
+    inputs.orato.packages.${pkgs.system}.default
   ];
 }
 ```
@@ -60,7 +60,7 @@ To install directly into your user environment without modifying system configur
 
 ```bash
 # Install directly from GitHub
-nix profile install github:dkchw/Recorder
+nix profile install github:dkchw/Orato
 
 # Or install from this local directory
 nix profile install .
@@ -68,12 +68,12 @@ nix profile install .
 
 To update later:
 ```bash
-nix profile upgrade recorder
+nix profile upgrade orato
 ```
 
 To uninstall:
 ```bash
-nix profile remove recorder
+nix profile remove orato
 ```
 
 ---
@@ -81,7 +81,7 @@ nix profile remove recorder
 ### Option D: Run Instantly without Installing (`nix run`)
 ```bash
 # Run directly from GitHub
-nix run github:dkchw/Recorder
+nix run github:dkchw/Orato
 
 # Or run from local repo
 nix run .
@@ -102,7 +102,7 @@ cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 
 # 3. Launch application
-./build/recorder
+./build/orato
 ```
 
 ---
@@ -124,10 +124,10 @@ rm -rf build result .cache
 
 ## 4. Desktop Integration
 
-To make Recorder appear in your desktop application launcher (Rofi, Wofi, GNOME, KDE, etc.):
+To make Orato appear in your desktop application launcher (Rofi, Wofi, GNOME, KDE, etc.):
 
 ```bash
 mkdir -p ~/.local/share/applications
-cp recorder.desktop ~/.local/share/applications/
+cp orato.desktop ~/.local/share/applications/
 ```
 If using `nix profile install` or NixOS system packages, the desktop entry is installed automatically.

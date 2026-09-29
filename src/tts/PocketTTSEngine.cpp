@@ -27,7 +27,7 @@ void PocketTTSEngine::detectEnvironment() {
         QDir::currentPath() + "/pocket-tts",
         QCoreApplication::applicationDirPath() + "/pocket-tts",
         QCoreApplication::applicationDirPath() + "/../pocket-tts",
-        "/run/host/home/dkchw/Documents/Code/Ongoing/Repo/Recorder/pocket-tts"
+        "/run/host/home/dkchw/Documents/Code/Ongoing/Repo/Orato/pocket-tts"
     };
 
     for (const auto &dir : searchDirs) {

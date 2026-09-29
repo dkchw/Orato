@@ -5,10 +5,10 @@
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
 
-    app.setApplicationName("Recorder");
-    app.setApplicationDisplayName("Recorder — Speech & Pronunciation Studio");
-    app.setOrganizationName("SpeechStudio");
-    app.setOrganizationDomain("speechstudio.local");
+    app.setApplicationName("Orato");
+    app.setApplicationDisplayName("Orato — Speech & Pronunciation Studio");
+    app.setOrganizationName("OratoStudio");
+    app.setOrganizationDomain("orato.local");
 
     MainWindow window;
     window.show();

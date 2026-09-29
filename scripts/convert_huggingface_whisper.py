@@ -19,7 +19,7 @@ def main():
         sys.exit(1)
 
     model_id = sys.argv[1]
-    out_dir = Path(sys.argv[2] if len(sys.argv) > 2 else os.path.expanduser("~/.local/share/recorder/models"))
+    out_dir = Path(sys.argv[2] if len(sys.argv) > 2 else os.path.expanduser("~/.local/share/orato/models"))
     out_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Loading Hugging Face model: {model_id}...")

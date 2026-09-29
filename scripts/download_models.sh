@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Model Downloader for Recorder
+# Model Downloader for Orato
 # Supports Whisper GGML models and primeline/whisper-tiny-german
 # ==============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MODELS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/recorder/models"
+MODELS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/orato/models"
 mkdir -p "$MODELS_DIR"
 
 echo "Models destination: $MODELS_DIR"

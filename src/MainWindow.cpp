@@ -17,7 +17,7 @@
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent) {
-    setWindowTitle(tr("Recorder — Speech & Pronunciation Studio"));
+    setWindowTitle(tr("Orato — Speech & Pronunciation Studio"));
     resize(1320, 880);
 
     // Modern clean dark theme with high contrast and legible typography
@@ -586,7 +586,7 @@ void MainWindow::setupTtsStudioTab(QWidget *container) {
 
     m_ttsInputEdit = new QLineEdit(inputGroup);
     m_ttsInputEdit->setPlaceholderText(tr("Type text to synthesize with Pocket TTS..."));
-    m_ttsInputEdit->setText("Guten Tag! Ich lerne heute Deutsch mit dem Recorder Studio.");
+    m_ttsInputEdit->setText("Guten Tag! Ich lerne heute Deutsch mit dem Orato Studio.");
     groupLayout->addWidget(m_ttsInputEdit);
 
     auto *optRow = new QHBoxLayout();

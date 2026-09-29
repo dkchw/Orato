@@ -14,8 +14,17 @@ SessionManager::SessionManager(QObject *parent)
 
 QString SessionManager::sessionsRootDirectory() const {
     QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (dataDir.isEmpty()) {
-        dataDir = QDir::homePath() + "/.local/share/recorder";
+    if (dataDir.isEmpty() || !QDir(dataDir).exists()) {
+        // Fallback to standard XDG data directory
+        QString oratoDir = QDir::homePath() + "/.local/share/orato";
+        QString recorderDir = QDir::homePath() + "/.local/share/recorder";
+        if (QDir(oratoDir).exists()) {
+            dataDir = oratoDir;
+        } else if (QDir(recorderDir).exists()) {
+            dataDir = recorderDir;
+        } else {
+            dataDir = oratoDir;
+        }
     }
     return dataDir + "/sessions";
 }

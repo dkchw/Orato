@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(recorder VERSION 1.0.0 LANGUAGES C CXX)
+project(orato VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -71,15 +71,15 @@ set(SOURCES
     resources/resources.qrc
 )
 
-add_executable(recorder ${SOURCES})
+add_executable(orato ${SOURCES})
 
-target_include_directories(recorder PRIVATE
+target_include_directories(orato PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/whisper.cpp/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/whisper.cpp/ggml/include
 )
 
-target_link_libraries(recorder PRIVATE
+target_link_libraries(orato PRIVATE
     whisper
     Qt6::Core
     Qt6::Gui
@@ -89,4 +89,4 @@ target_link_libraries(recorder PRIVATE
     Qt6::Svg
 )
 
-install(TARGETS recorder DESTINATION bin)
+install(TARGETS orato DESTINATION bin)

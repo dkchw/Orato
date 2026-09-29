@@ -1,4 +1,4 @@
-# Recorder 🎙️
+# Orato 🎙️
 
 A high-performance Qt6 C++ Audio Recording & Speech Training Studio for Linux, built with **Whisper.cpp**, **Kyutai Pocket TTS**, **Interactive Waveform Timeline**, and **Real-Time Markdown Notes**.
 
@@ -25,7 +25,7 @@ Designed specifically for speech shadowing, language learning, pronunciation tra
   - Resizable left sidebar: Drag the divider to adjust sidebar width freely.
   - Toggle / Close sidebar anytime with the top bar toggle or <kbd>Ctrl+B</kbd>.
   - **Open Folder**: Click the folder button to open the active session folder directly in your system file manager (Dolphin, Nautilus, etc.).
-  - Auto-persists audio WAV, JSON metadata, transcribed segments, notes, and cached TTS clips in `~/.local/share/recorder/sessions/`.
+  - Auto-persists audio WAV, JSON metadata, transcribed segments, notes, and cached TTS clips in `~/.local/share/orato/sessions/`.
 
 - 🧠 **Whisper.cpp Speech-to-Text Integration**:
   - Offline local inference running in background threads without blocking the UI.
@@ -84,16 +84,16 @@ Designed specifically for speech shadowing, language learning, pronunciation tra
 
 Install directly from GitHub into your user profile:
 ```bash
-nix profile install github:dkchw/Recorder
-recorder
+nix profile install github:dkchw/Orato
+orato
 ```
 
 Or run without installing:
 ```bash
-nix run github:dkchw/Recorder
+nix run github:dkchw/Orato
 ```
 
-See [INSTALL.md](file:///run/host/home/dkchw/Documents/Code/Ongoing/Repo/Recorder/INSTALL.md) for full system configuration and Home Manager setup instructions.
+See [INSTALL.md](INSTALL.md) for full system configuration and Home Manager setup instructions.
 
 ---
 
@@ -108,7 +108,7 @@ cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 
 # 3. Run
-./build/recorder
+./build/orato
 ```
 
 ### Clean Up Build Artifacts
@@ -133,7 +133,7 @@ You can download Whisper models directly from within the app under the **Whisper
 ./scripts/download_models.sh base
 ```
 
-Models are saved in `~/.local/share/recorder/models/`.
+Models are saved in `~/.local/share/orato/models/`.
 
 ---
 

@@ -1,5 +1,5 @@
 {
-  description = "Recorder: Qt6 C++ Speech Training Studio with Whisper.cpp, Pocket TTS, Realtime Waveform Timeline, and Markdown Notes";
+  description = "Orato: Qt6 C++ Speech Training Studio with Whisper.cpp, Pocket TTS, Realtime Waveform Timeline, and Markdown Notes";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -12,7 +12,7 @@
         pkgs = nixpkgs.legacyPackages.${system};
       in {
         packages.default = pkgs.stdenv.mkDerivation {
-          pname = "sound-recorder";
+          pname = "orato";
           version = "1.0.0";
           src = pkgs.lib.cleanSourceWith {
             src = ./.;
@@ -46,19 +46,19 @@
             description = "Qt6 C++ Speech Recording & Training Studio with Whisper.cpp and Pocket TTS";
             license = licenses.mit;
             platforms = platforms.linux;
-            mainProgram = "recorder";
+            mainProgram = "orato";
           };
         };
 
-        packages.recorder = self.packages.${system}.default;
+        packages.orato = self.packages.${system}.default;
 
         apps.default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/recorder";
+          program = "${self.packages.${system}.default}/bin/orato";
         };
 
         devShells.default = pkgs.mkShell {
-          name = "recorder-dev-shell";
+          name = "orato-dev-shell";
 
           nativeBuildInputs = [
             pkgs.cmake
@@ -86,7 +86,7 @@
 
             echo ""
             echo "  ╔═══════════════════════════════════════════════════════════════════════╗"
-            echo "  ║        🎙️  Recorder — Qt6 C++ Speech & Pronunciation Studio           ║"
+            echo "  ║         🎙️  Orato — Qt6 C++ Speech & Pronunciation Studio            ║"
             echo "  ║      Whisper.cpp | Pocket TTS | Visual Timeline | Markdown Notes      ║"
             echo "  ╚═══════════════════════════════════════════════════════════════════════╝"
             echo ""
@@ -95,7 +95,7 @@
             echo "  Build commands:"
             echo "    cmake -B build -S . -DCMAKE_BUILD_TYPE=Release"
             echo "    cmake --build build -j\$(nproc)"
-            echo "    ./build/bin/recorder"
+            echo "    ./build/orato"
             echo ""
           '';
         };
