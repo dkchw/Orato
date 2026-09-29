@@ -40,6 +40,8 @@
             "-DWHISPER_BUILD_EXAMPLES=OFF"
           ];
 
+          enableParallelBuilding = true;
+
           meta = with pkgs.lib; {
             description = "Qt6 C++ Speech Recording & Training Studio with Whisper.cpp and Pocket TTS";
             license = licenses.mit;
