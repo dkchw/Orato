@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(orato VERSION 1.2.1 LANGUAGES C CXX)
+project(orato VERSION 1.2.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -74,6 +74,8 @@ set(SOURCES
     src/widgets/ConfigDialog.cpp
     src/widgets/SessionItemDelegate.h
     src/widgets/SessionItemDelegate.cpp
+    src/widgets/FlowLayout.h
+    src/widgets/FlowLayout.cpp
     resources/resources.qrc
 )
 

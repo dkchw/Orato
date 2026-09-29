@@ -13,7 +13,7 @@
       in {
         packages.default = pkgs.stdenv.mkDerivation {
           pname = "orato";
-          version = "1.2.1";
+          version = "1.2.2";
           src = pkgs.lib.cleanSourceWith {
             src = ./.;
             filter = path: type:

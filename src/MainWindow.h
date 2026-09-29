@@ -110,6 +110,7 @@ private slots:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     void setupUi();
@@ -159,6 +160,8 @@ private:
     QPushButton *m_ttsStudioBtn = nullptr;
 
     // Top Bar Session Title & Info
+    QWidget *m_topBarWidget = nullptr;
+    QWidget *m_flowContainer = nullptr;
     QLineEdit *m_topSessionTitleEdit = nullptr;
     QLabel *m_sessionDateBadge = nullptr;
     QLabel *m_sessionTakeBadge = nullptr;

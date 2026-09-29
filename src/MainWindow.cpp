@@ -15,9 +15,11 @@
 #include <QDir>
 #include <QDebug>
 #include <QEvent>
+#include <QResizeEvent>
 #include "widgets/ModelManagerDialog.h"
 #include "widgets/ConfigDialog.h"
 #include "widgets/SessionItemDelegate.h"
+#include "widgets/FlowLayout.h"
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent) {
@@ -139,9 +141,9 @@ void MainWindow::setupUi() {
     studioLayout->setSpacing(6);
 
     // Top Bar (Recording + STT controls)
-    auto *topBarWidget = new QWidget(m_studioWidget);
-    setupTopBar(topBarWidget);
-    studioLayout->addWidget(topBarWidget);
+    m_topBarWidget = new QWidget(m_studioWidget);
+    setupTopBar(m_topBarWidget);
+    studioLayout->addWidget(m_topBarWidget);
 
     // Waveform Timeline Area
     auto *waveformContainer = new QWidget(m_studioWidget);
@@ -209,6 +211,19 @@ void MainWindow::setupUi() {
     m_mainSplitter->setSizes({300, 1020});
 
     mainLayout->addWidget(m_mainSplitter);
+
+    connect(m_mainSplitter, &QSplitter::splitterMoved, this, [this]() {
+        if (m_flowContainer) {
+            m_flowContainer->updateGeometry();
+        }
+        if (m_topBarWidget) {
+            m_topBarWidget->updateGeometry();
+            if (m_topBarWidget->parentWidget() && m_topBarWidget->parentWidget()->layout()) {
+                m_topBarWidget->parentWidget()->layout()->activate();
+            }
+        }
+        m_sessionListWidget->doItemsLayout();
+    });
 
     // Connect core recorder signals
     connect(m_recorder, &AudioRecorder::durationChanged, this, &MainWindow::onRecordingDurationChanged);
@@ -341,12 +356,13 @@ void MainWindow::setupSidebar(QWidget *container) {
 void MainWindow::setupTopBar(QWidget *container) {
     auto *mainLayout = new QVBoxLayout(container);
     mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->setSpacing(5);
+    mainLayout->setSpacing(4);
 
     // =========================================================================
-    // Row 1: Session Header & Studio Navigation
+    // Row 1: Dedicated Full-Width Session Header
     // =========================================================================
     auto *sessionHeaderRow = new QHBoxLayout();
+    sessionHeaderRow->setContentsMargins(0, 0, 0, 0);
     sessionHeaderRow->setSpacing(6);
 
     // Sidebar toggle button
@@ -357,7 +373,7 @@ void MainWindow::setupTopBar(QWidget *container) {
     connect(m_sidebarToggleBtn, &QPushButton::clicked, this, &MainWindow::onSidebarToggle);
     sessionHeaderRow->addWidget(m_sidebarToggleBtn);
 
-    // Prominent full Session Title editor
+    // Prominent full Session Title editor (stretches to fill all available width)
     m_topSessionTitleEdit = new QLineEdit(container);
     m_topSessionTitleEdit->setPlaceholderText(tr("Untitled Session"));
     m_topSessionTitleEdit->setStyleSheet(
@@ -398,215 +414,240 @@ void MainWindow::setupTopBar(QWidget *container) {
     );
     sessionHeaderRow->addWidget(m_sessionTakeBadge);
 
-    sessionHeaderRow->addSpacing(4);
-
-    // Layout switcher buttons
-    auto *layoutLbl = new QLabel(tr("Layout:"), container);
-    layoutLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
-    sessionHeaderRow->addWidget(layoutLbl);
-
-    m_layoutSplitVBtn = new QPushButton(container);
-    m_layoutSplitVBtn->setIcon(QIcon(":/icons/layout-split-v.svg"));
-    m_layoutSplitVBtn->setToolTip(tr("Stacked View (Notes on top, Transcript under it)"));
-    m_layoutSplitVBtn->setFixedSize(26, 26);
-    connect(m_layoutSplitVBtn, &QPushButton::clicked, this, [this]() {
-        setWorkspaceLayout(WorkspaceLayout::StackedSplit);
-    });
-    sessionHeaderRow->addWidget(m_layoutSplitVBtn);
-
-    m_layoutSplitHBtn = new QPushButton(container);
-    m_layoutSplitHBtn->setIcon(QIcon(":/icons/layout-split-h.svg"));
-    m_layoutSplitHBtn->setToolTip(tr("Side-by-Side View (Notes left, Transcript right)"));
-    m_layoutSplitHBtn->setFixedSize(26, 26);
-    connect(m_layoutSplitHBtn, &QPushButton::clicked, this, [this]() {
-        setWorkspaceLayout(WorkspaceLayout::SideSplit);
-    });
-    sessionHeaderRow->addWidget(m_layoutSplitHBtn);
-
-    m_layoutTabsBtn = new QPushButton(container);
-    m_layoutTabsBtn->setIcon(QIcon(":/icons/layout-tabs.svg"));
-    m_layoutTabsBtn->setToolTip(tr("Tabs View (Sentences, Notes, TTS Studio, Models)"));
-    m_layoutTabsBtn->setFixedSize(26, 26);
-    connect(m_layoutTabsBtn, &QPushButton::clicked, this, [this]() {
-        setWorkspaceLayout(WorkspaceLayout::Tabbed);
-    });
-    sessionHeaderRow->addWidget(m_layoutTabsBtn);
-
-    sessionHeaderRow->addSpacing(4);
-
-    // Dedicated Models Manager Button
-    m_manageModelsBtn = new QPushButton(tr("Models"), container);
-    m_manageModelsBtn->setIcon(QIcon(":/icons/cpu.svg"));
-    m_manageModelsBtn->setToolTip(tr("Open Whisper Models Manager (Download presets, import & delete models)"));
-    m_manageModelsBtn->setStyleSheet("padding: 3px 8px; font-size: 11px;");
-    connect(m_manageModelsBtn, &QPushButton::clicked, this, &MainWindow::onOpenModelManager);
-    sessionHeaderRow->addWidget(m_manageModelsBtn);
-
-    // Engine & App Config Button
-    m_configBtn = new QPushButton(tr("Config"), container);
-    m_configBtn->setIcon(QIcon(":/icons/settings.svg"));
-    m_configBtn->setToolTip(tr("Configure Whisper STT, Pocket TTS, threads & dock position"));
-    m_configBtn->setStyleSheet("padding: 3px 8px; font-size: 11px;");
-    connect(m_configBtn, &QPushButton::clicked, this, &MainWindow::onOpenConfigDialog);
-    sessionHeaderRow->addWidget(m_configBtn);
-
-    // TTS Studio Button
-    m_ttsStudioBtn = new QPushButton(tr("TTS"), container);
-    m_ttsStudioBtn->setIcon(QIcon(":/icons/volume.svg"));
-    m_ttsStudioBtn->setToolTip(tr("Open Pocket TTS Speech Synthesis Studio"));
-    m_ttsStudioBtn->setStyleSheet("padding: 3px 8px; font-size: 11px;");
-    connect(m_ttsStudioBtn, &QPushButton::clicked, this, &MainWindow::onOpenTtsStudio);
-    sessionHeaderRow->addWidget(m_ttsStudioBtn);
-
     mainLayout->addLayout(sessionHeaderRow);
 
     // =========================================================================
-    // Row 2: Audio Recording Controls
+    // Row 2: Dynamic Wrapping Studio Toolbar (FlowLayout)
+    // In fullscreen: fits on 1 single row, saving maximum vertical space.
+    // In windowed mode: moves up & down lines automatically without compressing.
     // =========================================================================
-    auto *audioRow = new QHBoxLayout();
-    audioRow->setSpacing(6);
+    m_flowContainer = new QWidget(container);
+    m_flowContainer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+    m_flowContainer->installEventFilter(this);
+    auto *flowLayout = new FlowLayout(m_flowContainer, 0, 6, 4);
 
-    // Audio input selector
-    auto *inputLbl = new QLabel(tr("Input:"), container);
+    // Cluster 1: Audio Input
+    auto *inputCluster = new QWidget(m_flowContainer);
+    auto *inputLay = new QHBoxLayout(inputCluster);
+    inputLay->setContentsMargins(0, 0, 0, 0);
+    inputLay->setSpacing(4);
+
+    auto *inputLbl = new QLabel(tr("Input:"), inputCluster);
     inputLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
-    audioRow->addWidget(inputLbl);
+    inputLay->addWidget(inputLbl);
 
-    m_inputDeviceCombo = new QComboBox(container);
-    m_inputDeviceCombo->setMinimumWidth(110);
-    m_inputDeviceCombo->setMaximumWidth(170);
+    m_inputDeviceCombo = new QComboBox(inputCluster);
+    m_inputDeviceCombo->setMinimumWidth(95);
+    m_inputDeviceCombo->setMaximumWidth(150);
     connect(m_inputDeviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onAudioInputDeviceChanged);
-    audioRow->addWidget(m_inputDeviceCombo);
+    inputLay->addWidget(m_inputDeviceCombo);
 
-    auto *refreshDevBtn = new QPushButton(container);
+    auto *refreshDevBtn = new QPushButton(inputCluster);
     refreshDevBtn->setIcon(QIcon(":/icons/refresh-cw.svg"));
     refreshDevBtn->setToolTip(tr("Refresh Audio Devices"));
     refreshDevBtn->setFixedSize(26, 26);
     connect(refreshDevBtn, &QPushButton::clicked, this, &MainWindow::refreshAudioDevices);
-    audioRow->addWidget(refreshDevBtn);
+    inputLay->addWidget(refreshDevBtn);
+    flowLayout->addWidget(inputCluster);
 
-    // Record Button (New Take)
-    m_recordBtn = new QPushButton(tr("Record"), container);
+    // Cluster 2: Recording Actions
+    auto *recordCluster = new QWidget(m_flowContainer);
+    auto *recLay = new QHBoxLayout(recordCluster);
+    recLay->setContentsMargins(0, 0, 0, 0);
+    recLay->setSpacing(4);
+
+    m_recordBtn = new QPushButton(tr("Record"), recordCluster);
     m_recordBtn->setIcon(QIcon(":/icons/record.svg"));
-    m_recordBtn->setStyleSheet("background-color: #dc2626; color: white; font-weight: 600; padding: 4px 10px;");
+    m_recordBtn->setStyleSheet("background-color: #dc2626; color: white; font-weight: 600; padding: 3px 8px; min-height: 24px;");
     m_recordBtn->setToolTip(tr("Record a fresh take (replaces previous audio)"));
     connect(m_recordBtn, &QPushButton::clicked, this, &MainWindow::onRecordToggle);
-    audioRow->addWidget(m_recordBtn);
+    recLay->addWidget(m_recordBtn);
 
-    // Append Record Button (Record More / Multi-sentence)
-    m_recordAppendBtn = new QPushButton(tr("Append"), container);
+    m_recordAppendBtn = new QPushButton(tr("Append"), recordCluster);
     m_recordAppendBtn->setIcon(QIcon(":/icons/mic-plus.svg"));
-    m_recordAppendBtn->setStyleSheet("background-color: #b91c1c; color: white; font-weight: 500; padding: 4px 8px;");
+    m_recordAppendBtn->setStyleSheet("background-color: #b91c1c; color: white; font-weight: 500; padding: 3px 7px; min-height: 24px;");
     m_recordAppendBtn->setToolTip(tr("Record additional sentences/paragraphs to existing session audio"));
     connect(m_recordAppendBtn, &QPushButton::clicked, this, &MainWindow::onRecordAppendToggle);
-    audioRow->addWidget(m_recordAppendBtn);
+    recLay->addWidget(m_recordAppendBtn);
 
-    // Retake Button
-    m_retakeBtn = new QPushButton(tr("Retake"), container);
+    m_retakeBtn = new QPushButton(tr("Retake"), recordCluster);
     m_retakeBtn->setIcon(QIcon(":/icons/rotate-ccw.svg"));
     m_retakeBtn->setToolTip(tr("Clear existing recording and prepare for a fresh take"));
-    m_retakeBtn->setStyleSheet("padding: 4px 8px;");
+    m_retakeBtn->setStyleSheet("padding: 3px 7px; min-height: 24px;");
     connect(m_retakeBtn, &QPushButton::clicked, this, &MainWindow::onRetake);
-    audioRow->addWidget(m_retakeBtn);
+    recLay->addWidget(m_retakeBtn);
 
-    m_pauseBtn = new QPushButton(container);
+    m_pauseBtn = new QPushButton(recordCluster);
     m_pauseBtn->setIcon(QIcon(":/icons/pause.svg"));
     m_pauseBtn->setToolTip(tr("Pause / Resume recording"));
     m_pauseBtn->setEnabled(false);
     m_pauseBtn->setFixedSize(26, 26);
     connect(m_pauseBtn, &QPushButton::clicked, this, &MainWindow::onPauseToggle);
-    audioRow->addWidget(m_pauseBtn);
+    recLay->addWidget(m_pauseBtn);
 
-    m_recordingTimeLabel = new QLabel("00:00", container);
+    m_recordingTimeLabel = new QLabel("00:00", recordCluster);
     m_recordingTimeLabel->setStyleSheet("font-family: monospace; font-size: 12px; font-weight: bold; color: #f87171;");
-    audioRow->addWidget(m_recordingTimeLabel);
+    recLay->addWidget(m_recordingTimeLabel);
+    flowLayout->addWidget(recordCluster);
 
-    // Live VU Meter
-    m_levelMeter = new AudioLevelMeter(container);
-    m_levelMeter->setFixedWidth(50);
+    // Cluster 3: Meter & Gain Boost
+    auto *gainCluster = new QWidget(m_flowContainer);
+    auto *gainLay = new QHBoxLayout(gainCluster);
+    gainLay->setContentsMargins(0, 0, 0, 0);
+    gainLay->setSpacing(4);
+
+    m_levelMeter = new AudioLevelMeter(gainCluster);
+    m_levelMeter->setFixedWidth(40);
     m_levelMeter->setFixedHeight(16);
-    audioRow->addWidget(m_levelMeter);
+    gainLay->addWidget(m_levelMeter);
 
-    // Mic Boost / Input Gain
-    audioRow->addSpacing(4);
-    auto *gainLbl = new QLabel(tr("Gain:"), container);
+    auto *gainLbl = new QLabel(tr("Gain:"), gainCluster);
     gainLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
-    audioRow->addWidget(gainLbl);
+    gainLay->addWidget(gainLbl);
 
-    m_micGainSlider = new QSlider(Qt::Horizontal, container);
+    m_micGainSlider = new QSlider(Qt::Horizontal, gainCluster);
     m_micGainSlider->setRange(10, 40);
     m_micGainSlider->setValue(static_cast<int>(m_recorder->inputGain() * 10.0f));
-    m_micGainSlider->setFixedWidth(50);
+    m_micGainSlider->setFixedWidth(40);
     m_micGainSlider->setToolTip(tr("Microphone input boost (1.0x - 4.0x)"));
-    m_gainValueLabel = new QLabel(QString("%1x").arg(m_recorder->inputGain(), 0, 'f', 1), container);
+    m_gainValueLabel = new QLabel(QString("%1x").arg(m_recorder->inputGain(), 0, 'f', 1), gainCluster);
     m_gainValueLabel->setStyleSheet("font-family: monospace; font-size: 11px; color: #a5b4fc; font-weight: 600;");
     connect(m_micGainSlider, &QSlider::valueChanged, this, [this](int val) {
         float gain = val / 10.0f;
         m_recorder->setInputGain(gain);
         m_gainValueLabel->setText(QString("%1x").arg(gain, 0, 'f', 1));
     });
-    audioRow->addWidget(m_micGainSlider);
-    audioRow->addWidget(m_gainValueLabel);
+    gainLay->addWidget(m_micGainSlider);
+    gainLay->addWidget(m_gainValueLabel);
+    flowLayout->addWidget(gainCluster);
 
-    audioRow->addStretch();
-    mainLayout->addLayout(audioRow);
+    // Cluster 4: Whisper Model
+    auto *modelCluster = new QWidget(m_flowContainer);
+    auto *modelLay = new QHBoxLayout(modelCluster);
+    modelLay->setContentsMargins(0, 0, 0, 0);
+    modelLay->setSpacing(4);
 
-    // =========================================================================
-    // Row 3: Whisper STT & Transcription Controls
-    // =========================================================================
-    auto *sttRow = new QHBoxLayout();
-    sttRow->setSpacing(6);
-
-    // Whisper Model selector
-    auto *modelLbl = new QLabel(tr("Model:"), container);
+    auto *modelLbl = new QLabel(tr("Model:"), modelCluster);
     modelLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
-    sttRow->addWidget(modelLbl);
+    modelLay->addWidget(modelLbl);
 
-    m_modelCombo = new QComboBox(container);
-    m_modelCombo->setMinimumWidth(140);
-    m_modelCombo->setMaximumWidth(220);
+    m_modelCombo = new QComboBox(modelCluster);
+    m_modelCombo->setMinimumWidth(110);
+    m_modelCombo->setMaximumWidth(160);
     connect(m_modelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onModelSelectionChanged);
-    sttRow->addWidget(m_modelCombo);
+    modelLay->addWidget(m_modelCombo);
 
-    // Quick Add Model Button
-    m_addModelBtn = new QPushButton(container);
+    m_addModelBtn = new QPushButton(modelCluster);
     m_addModelBtn->setIcon(QIcon(":/icons/folder-plus.svg"));
     m_addModelBtn->setToolTip(tr("Import Local Whisper Model (.bin / .gguf)"));
     m_addModelBtn->setFixedSize(26, 26);
     connect(m_addModelBtn, &QPushButton::clicked, this, &MainWindow::onAddCustomModelClicked);
-    sttRow->addWidget(m_addModelBtn);
+    modelLay->addWidget(m_addModelBtn);
+    flowLayout->addWidget(modelCluster);
 
-    auto *langLbl = new QLabel(tr("Lang:"), container);
+    // Cluster 5: Language & Transcribe
+    auto *transCluster = new QWidget(m_flowContainer);
+    auto *transLay = new QHBoxLayout(transCluster);
+    transLay->setContentsMargins(0, 0, 0, 0);
+    transLay->setSpacing(4);
+
+    auto *langLbl = new QLabel(tr("Lang:"), transCluster);
     langLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
-    sttRow->addWidget(langLbl);
+    transLay->addWidget(langLbl);
 
-    m_languageCombo = new QComboBox(container);
+    m_languageCombo = new QComboBox(transCluster);
     m_languageCombo->addItem("German (de)", "de");
     m_languageCombo->addItem("English (en)", "en");
     m_languageCombo->addItem("Auto Detect", "auto");
     m_languageCombo->addItem("French (fr)", "fr");
     m_languageCombo->addItem("Spanish (es)", "es");
     m_languageCombo->addItem("Italian (it)", "it");
-    m_languageCombo->setMinimumWidth(100);
-    m_languageCombo->setMaximumWidth(140);
+    m_languageCombo->setMinimumWidth(85);
+    m_languageCombo->setMaximumWidth(120);
     connect(m_languageCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int idx) {
         QString lang = m_languageCombo->itemData(idx).toString();
         m_currentSession.language = lang;
         m_whisper->setLanguage(lang);
     });
-    sttRow->addWidget(m_languageCombo);
+    transLay->addWidget(m_languageCombo);
 
-    // Transcribe Button
-    m_transcribeBtn = new QPushButton(tr("Transcribe"), container);
+    m_transcribeBtn = new QPushButton(tr("Transcribe"), transCluster);
     m_transcribeBtn->setIcon(QIcon(":/icons/zap.svg"));
-    m_transcribeBtn->setStyleSheet("background-color: #4f46e5; color: white; font-weight: 600; padding: 4px 12px;");
+    m_transcribeBtn->setStyleSheet("background-color: #4f46e5; color: white; font-weight: 600; padding: 3px 12px; min-height: 24px;");
     connect(m_transcribeBtn, &QPushButton::clicked, this, &MainWindow::onTranscribeClicked);
-    sttRow->addWidget(m_transcribeBtn);
+    transLay->addWidget(m_transcribeBtn);
+    flowLayout->addWidget(transCluster);
 
-    sttRow->addStretch();
-    mainLayout->addLayout(sttRow);
+    // Cluster 6: Workspace Layout Switchers
+    auto *layoutCluster = new QWidget(m_flowContainer);
+    auto *layoutLay = new QHBoxLayout(layoutCluster);
+    layoutLay->setContentsMargins(0, 0, 0, 0);
+    layoutLay->setSpacing(3);
+
+    auto *layoutLbl = new QLabel(tr("Layout:"), layoutCluster);
+    layoutLbl->setStyleSheet("font-size: 11px; color: #94a3b8;");
+    layoutLay->addWidget(layoutLbl);
+
+    m_layoutSplitVBtn = new QPushButton(layoutCluster);
+    m_layoutSplitVBtn->setIcon(QIcon(":/icons/layout-split-v.svg"));
+    m_layoutSplitVBtn->setToolTip(tr("Stacked View (Notes on top, Transcript under it)"));
+    m_layoutSplitVBtn->setFixedSize(26, 26);
+    connect(m_layoutSplitVBtn, &QPushButton::clicked, this, [this]() {
+        setWorkspaceLayout(WorkspaceLayout::StackedSplit);
+    });
+    layoutLay->addWidget(m_layoutSplitVBtn);
+
+    m_layoutSplitHBtn = new QPushButton(layoutCluster);
+    m_layoutSplitHBtn->setIcon(QIcon(":/icons/layout-split-h.svg"));
+    m_layoutSplitHBtn->setToolTip(tr("Side-by-Side View (Notes left, Transcript right)"));
+    m_layoutSplitHBtn->setFixedSize(26, 26);
+    connect(m_layoutSplitHBtn, &QPushButton::clicked, this, [this]() {
+        setWorkspaceLayout(WorkspaceLayout::SideSplit);
+    });
+    layoutLay->addWidget(m_layoutSplitHBtn);
+
+    m_layoutTabsBtn = new QPushButton(layoutCluster);
+    m_layoutTabsBtn->setIcon(QIcon(":/icons/layout-tabs.svg"));
+    m_layoutTabsBtn->setToolTip(tr("Tabs View (Sentences, Notes, TTS Studio, Models)"));
+    m_layoutTabsBtn->setFixedSize(26, 26);
+    connect(m_layoutTabsBtn, &QPushButton::clicked, this, [this]() {
+        setWorkspaceLayout(WorkspaceLayout::Tabbed);
+    });
+    layoutLay->addWidget(m_layoutTabsBtn);
+    flowLayout->addWidget(layoutCluster);
+
+    // Cluster 7: Models, Config & TTS Studio Tools
+    auto *toolsCluster = new QWidget(m_flowContainer);
+    auto *toolsLay = new QHBoxLayout(toolsCluster);
+    toolsLay->setContentsMargins(0, 0, 0, 0);
+    toolsLay->setSpacing(4);
+
+    m_manageModelsBtn = new QPushButton(tr("Models"), toolsCluster);
+    m_manageModelsBtn->setIcon(QIcon(":/icons/cpu.svg"));
+    m_manageModelsBtn->setToolTip(tr("Open Whisper Models Manager (Download presets, import & delete models)"));
+    m_manageModelsBtn->setStyleSheet("padding: 3px 8px; font-size: 11px; min-height: 24px;");
+    connect(m_manageModelsBtn, &QPushButton::clicked, this, &MainWindow::onOpenModelManager);
+    toolsLay->addWidget(m_manageModelsBtn);
+
+    m_configBtn = new QPushButton(tr("Config"), toolsCluster);
+    m_configBtn->setIcon(QIcon(":/icons/settings.svg"));
+    m_configBtn->setToolTip(tr("Configure Whisper STT, Pocket TTS, threads & dock position"));
+    m_configBtn->setStyleSheet("padding: 3px 8px; font-size: 11px; min-height: 24px;");
+    connect(m_configBtn, &QPushButton::clicked, this, &MainWindow::onOpenConfigDialog);
+    toolsLay->addWidget(m_configBtn);
+
+    m_ttsStudioBtn = new QPushButton(tr("TTS"), toolsCluster);
+    m_ttsStudioBtn->setIcon(QIcon(":/icons/volume.svg"));
+    m_ttsStudioBtn->setToolTip(tr("Open Pocket TTS Speech Synthesis Studio"));
+    m_ttsStudioBtn->setStyleSheet("padding: 3px 8px; font-size: 11px; min-height: 24px;");
+    connect(m_ttsStudioBtn, &QPushButton::clicked, this, &MainWindow::onOpenTtsStudio);
+    toolsLay->addWidget(m_ttsStudioBtn);
+    flowLayout->addWidget(toolsCluster);
+
+    mainLayout->addWidget(m_flowContainer);
 
     // Transcribe Progress Bar
     m_transcribeProgress = new QProgressBar(container);
@@ -1772,5 +1813,30 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     if (watched == m_sessionListWidget && event->type() == QEvent::Resize) {
         m_sessionListWidget->doItemsLayout();
     }
+    if (watched == m_flowContainer && event->type() == QEvent::Resize) {
+        auto *re = static_cast<QResizeEvent*>(event);
+        if (re->oldSize().width() != re->size().width()) {
+            m_flowContainer->updateGeometry();
+            if (m_topBarWidget) {
+                m_topBarWidget->updateGeometry();
+                if (m_topBarWidget->parentWidget() && m_topBarWidget->parentWidget()->layout()) {
+                    m_topBarWidget->parentWidget()->layout()->activate();
+                }
+            }
+        }
+    }
     return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event) {
+    QMainWindow::resizeEvent(event);
+    if (m_flowContainer) {
+        m_flowContainer->updateGeometry();
+    }
+    if (m_topBarWidget) {
+        m_topBarWidget->updateGeometry();
+        if (m_topBarWidget->parentWidget() && m_topBarWidget->parentWidget()->layout()) {
+            m_topBarWidget->parentWidget()->layout()->activate();
+        }
+    }
 }
