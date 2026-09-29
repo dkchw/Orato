@@ -1,5 +1,7 @@
 # Build directories
 build/
+result
+result*
 CMakeFiles/
 CMakeCache.txt
 *.o
