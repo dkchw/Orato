@@ -30,6 +30,7 @@
           buildInputs = [
             pkgs.qt6.qtbase
             pkgs.qt6.qtmultimedia
+            pkgs.qt6.qtsvg
             pkgs.alsa-lib
             pkgs.libpulseaudio
           ];
@@ -67,6 +68,7 @@
           buildInputs = [
             pkgs.qt6.qtbase
             pkgs.qt6.qtmultimedia
+            pkgs.qt6.qtsvg
             pkgs.alsa-lib
             pkgs.libpulseaudio
             pkgs.pipewire

@@ -56,52 +56,56 @@ SentenceItemWidget::SentenceItemWidget(const AudioSegment &segment, QWidget *par
     mainLayout->addWidget(m_textEdit, 1);
 
     // Action buttons
-    m_playBtn = new QPushButton(tr("▶ Play"), this);
+    m_playBtn = new QPushButton(tr("Play"), this);
+    m_playBtn->setIcon(QIcon(":/icons/play.svg"));
     m_playBtn->setToolTip(tr("Hear this sentence from recording"));
     m_playBtn->setStyleSheet(
         "QPushButton {"
-        "  background-color: #2ed573; color: #1e272e; font-weight: bold; border-radius: 4px; padding: 4px 10px;"
+        "  background-color: #059669; color: #ffffff; font-weight: 600; border-radius: 4px; padding: 4px 10px;"
         "}"
-        "QPushButton:hover { background-color: #26af5f; }"
+        "QPushButton:hover { background-color: #10b981; }"
     );
     connect(m_playBtn, &QPushButton::clicked, this, [this]() {
         emit playRequested(m_segment.id, m_segment.startMs, m_segment.endMs);
     });
     mainLayout->addWidget(m_playBtn);
 
-    m_loopBtn = new QPushButton(tr("🔁 Loop"), this);
+    m_loopBtn = new QPushButton(tr("Loop"), this);
+    m_loopBtn->setIcon(QIcon(":/icons/loop.svg"));
     m_loopBtn->setToolTip(tr("Loop this sentence repeatedly for shadowing practice"));
     m_loopBtn->setStyleSheet(
         "QPushButton {"
-        "  background-color: #3742fa; color: white; border-radius: 4px; padding: 4px 8px;"
+        "  background-color: #4338ca; color: white; border-radius: 4px; padding: 4px 8px;"
         "}"
-        "QPushButton:hover { background-color: #2f3542; }"
+        "QPushButton:hover { background-color: #4f46e5; }"
     );
     connect(m_loopBtn, &QPushButton::clicked, this, [this]() {
         emit loopRequested(m_segment.id, m_segment.startMs, m_segment.endMs);
     });
     mainLayout->addWidget(m_loopBtn);
 
-    m_ttsBtn = new QPushButton(tr("🔊 TTS"), this);
+    m_ttsBtn = new QPushButton(tr("TTS"), this);
+    m_ttsBtn->setIcon(QIcon(":/icons/volume.svg"));
     m_ttsBtn->setToolTip(tr("Generate or listen to native Pocket TTS pronunciation"));
     m_ttsBtn->setStyleSheet(
         "QPushButton {"
-        "  background-color: #ffa502; color: #1e272e; font-weight: bold; border-radius: 4px; padding: 4px 8px;"
+        "  background-color: #d97706; color: #ffffff; font-weight: 600; border-radius: 4px; padding: 4px 8px;"
         "}"
-        "QPushButton:hover { background-color: #eccc68; }"
+        "QPushButton:hover { background-color: #f59e0b; }"
     );
     connect(m_ttsBtn, &QPushButton::clicked, this, [this]() {
         emit ttsRequested(m_segment.id, m_segment.text);
     });
     mainLayout->addWidget(m_ttsBtn);
 
-    m_noteBtn = new QPushButton(tr("📝 Note"), this);
+    m_noteBtn = new QPushButton(tr("Note"), this);
+    m_noteBtn->setIcon(QIcon(":/icons/file-text.svg"));
     m_noteBtn->setToolTip(tr("Append sentence with timestamp into Markdown note"));
     m_noteBtn->setStyleSheet(
         "QPushButton {"
-        "  background-color: #57606f; color: white; border-radius: 4px; padding: 4px 8px;"
+        "  background-color: #334155; color: white; border-radius: 4px; padding: 4px 8px;"
         "}"
-        "QPushButton:hover { background-color: #747d8c; }"
+        "QPushButton:hover { background-color: #475569; }"
     );
     connect(m_noteBtn, &QPushButton::clicked, this, [this]() {
         emit sendToNoteRequested(m_segment.id, m_segment.startMs, m_segment.text);
@@ -116,40 +120,41 @@ void SentenceItemWidget::setActive(bool active) {
     if (active) {
         setStyleSheet(
             "QFrame#SentenceItemWidget {"
-            "  background-color: #1e3328;"
-            "  border: 1px solid #2ed573;"
+            "  background-color: #064e3b;"
+            "  border: 1px solid #10b981;"
             "  border-radius: 6px;"
             "  margin: 2px 4px;"
             "  padding: 4px;"
             "}"
         );
         m_badgeLabel->setStyleSheet(
-            "background-color: #2ed573; color: #1e272e; font-weight: bold; border-radius: 3px; padding: 2px 6px;"
+            "background-color: #10b981; color: #022c22; font-weight: bold; border-radius: 3px; padding: 2px 6px;"
         );
     } else {
         setStyleSheet(
             "QFrame#SentenceItemWidget {"
-            "  background-color: #23252d;"
-            "  border: 1px solid #363945;"
+            "  background-color: #1e2027;"
+            "  border: 1px solid #333846;"
             "  border-radius: 6px;"
             "  margin: 2px 4px;"
             "  padding: 4px;"
             "}"
         );
         m_badgeLabel->setStyleSheet(
-            "background-color: #313543; color: #70a1ff; font-weight: bold; border-radius: 3px; padding: 2px 6px;"
+            "background-color: #2b303c; color: #60a5fa; font-weight: bold; border-radius: 3px; padding: 2px 6px;"
         );
     }
 }
 
 void SentenceItemWidget::updateTtsStatus(bool hasAudio) {
     if (hasAudio) {
-        m_ttsBtn->setText(tr("🔊 TTS ▶"));
+        m_ttsBtn->setText(tr("TTS (Ready)"));
+        m_ttsBtn->setIcon(QIcon(":/icons/play-white.svg"));
         m_ttsBtn->setStyleSheet(
             "QPushButton {"
-            "  background-color: #ff6b81; color: white; font-weight: bold; border-radius: 4px; padding: 4px 8px;"
+            "  background-color: #e11d48; color: white; font-weight: bold; border-radius: 4px; padding: 4px 8px;"
             "}"
-            "QPushButton:hover { background-color: #ff4757; }"
+            "QPushButton:hover { background-color: #f43f5e; }"
         );
     }
 }

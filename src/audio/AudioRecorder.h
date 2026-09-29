@@ -30,9 +30,13 @@ public:
     State state() const { return m_state; }
     qint64 durationMs() const;
     const std::vector<float>& pcmSamples() const { return m_recordedPcm16k; }
+    void setPcmSamples(const std::vector<float> &samples);
+    void clearAudio();
+
+    bool isAppendMode() const { return m_appendMode; }
 
 public slots:
-    bool startRecording(const QAudioDevice &device = QAudioDevice());
+    bool startRecording(const QAudioDevice &device = QAudioDevice(), bool appendMode = false);
     void pauseRecording();
     void resumeRecording();
     void stopRecording(const QString &saveWavPath = QString());
@@ -49,9 +53,10 @@ private slots:
     void onTimerTick();
 
 private:
-    void processRawBufferTo16k();
+    std::vector<float> processRawBufferTo16k();
 
     State m_state = State::Stopped;
+    bool m_appendMode = false;
     QAudioDevice m_currentDevice;
     QAudioFormat m_audioFormat;
     QAudioSource *m_audioSource = nullptr;
@@ -59,9 +64,11 @@ private:
 
     QByteArray m_rawPcmBuffer;
     std::vector<float> m_recordedPcm16k;
+    std::vector<float> m_basePcmSamples;
     QString m_savePath;
 
     QTimer m_timer;
     QElapsedTimer m_elapsedTimer;
     qint64 m_accumulatedMs = 0;
+    qint64 m_baseDurationMs = 0;
 };

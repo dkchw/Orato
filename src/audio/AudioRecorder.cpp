@@ -22,18 +22,33 @@ QAudioDevice AudioRecorder::defaultDevice() const {
     return QMediaDevices::defaultAudioInput();
 }
 
-qint64 AudioRecorder::durationMs() const {
-    if (m_state == State::Recording) {
-        return m_accumulatedMs + m_elapsedTimer.elapsed();
-    }
-    return m_accumulatedMs;
+void AudioRecorder::setPcmSamples(const std::vector<float> &samples) {
+    m_recordedPcm16k = samples;
+    m_basePcmSamples = samples;
+    m_baseDurationMs = static_cast<qint64>((samples.size() * 1000) / 16000);
+    m_accumulatedMs = m_baseDurationMs;
 }
 
-bool AudioRecorder::startRecording(const QAudioDevice &device) {
+void AudioRecorder::clearAudio() {
+    m_recordedPcm16k.clear();
+    m_basePcmSamples.clear();
+    m_baseDurationMs = 0;
+    m_accumulatedMs = 0;
+}
+
+qint64 AudioRecorder::durationMs() const {
+    if (m_state == State::Recording) {
+        return m_baseDurationMs + m_accumulatedMs + m_elapsedTimer.elapsed();
+    }
+    return m_baseDurationMs + m_accumulatedMs;
+}
+
+bool AudioRecorder::startRecording(const QAudioDevice &device, bool appendMode) {
     if (m_state == State::Recording) {
         return true;
     }
 
+    m_appendMode = appendMode;
     m_currentDevice = device.isNull() ? defaultDevice() : device;
     if (m_currentDevice.isNull()) {
         emit errorOccurred(tr("No audio input device found."));
@@ -58,8 +73,16 @@ bool AudioRecorder::startRecording(const QAudioDevice &device) {
     }
 
     m_rawPcmBuffer.clear();
-    m_recordedPcm16k.clear();
     m_accumulatedMs = 0;
+
+    if (!appendMode) {
+        m_recordedPcm16k.clear();
+        m_basePcmSamples.clear();
+        m_baseDurationMs = 0;
+    } else {
+        m_basePcmSamples = m_recordedPcm16k;
+        m_baseDurationMs = static_cast<qint64>((m_basePcmSamples.size() * 1000) / 16000);
+    }
 
     m_audioSource = new QAudioSource(m_currentDevice, m_audioFormat, this);
     m_ioDevice = m_audioSource->start();
@@ -122,14 +145,23 @@ void AudioRecorder::stopRecording(const QString &saveWavPath) {
     emit stateChanged(m_state);
     emit levelChanged(0.0f, 0.0f);
 
-    processRawBufferTo16k();
+    std::vector<float> newlyRecorded = processRawBufferTo16k();
+
+    if (m_appendMode && !m_basePcmSamples.empty()) {
+        m_recordedPcm16k = m_basePcmSamples;
+        m_recordedPcm16k.insert(m_recordedPcm16k.end(), newlyRecorded.begin(), newlyRecorded.end());
+    } else {
+        m_recordedPcm16k = std::move(newlyRecorded);
+    }
+    m_basePcmSamples = m_recordedPcm16k;
+    m_baseDurationMs = static_cast<qint64>((m_recordedPcm16k.size() * 1000) / 16000);
 
     if (!saveWavPath.isEmpty() && !m_recordedPcm16k.empty()) {
         m_savePath = saveWavPath;
         AudioUtils::writeWavFile(saveWavPath, m_recordedPcm16k, 16000, 1);
     }
 
-    emit recordingFinished(saveWavPath, m_accumulatedMs);
+    emit recordingFinished(saveWavPath, m_baseDurationMs);
 }
 
 void AudioRecorder::onReadyRead() {
@@ -166,13 +198,13 @@ void AudioRecorder::onTimerTick() {
     emit durationChanged(durationMs());
 }
 
-void AudioRecorder::processRawBufferTo16k() {
-    m_recordedPcm16k.clear();
-    if (m_rawPcmBuffer.isEmpty()) return;
+std::vector<float> AudioRecorder::processRawBufferTo16k() {
+    std::vector<float> result;
+    if (m_rawPcmBuffer.isEmpty()) return result;
 
     int channels = m_audioFormat.channelCount();
     int sampleRate = m_audioFormat.sampleRate();
-    if (channels <= 0 || sampleRate <= 0) return;
+    if (channels <= 0 || sampleRate <= 0) return result;
 
     std::vector<float> monoSamples;
 
@@ -205,8 +237,9 @@ void AudioRecorder::processRawBufferTo16k() {
     }
 
     if (sampleRate == 16000) {
-        m_recordedPcm16k = std::move(monoSamples);
+        result = std::move(monoSamples);
     } else {
-        m_recordedPcm16k = AudioUtils::resample(monoSamples, sampleRate, 16000);
+        result = AudioUtils::resample(monoSamples, sampleRate, 16000);
     }
+    return result;
 }

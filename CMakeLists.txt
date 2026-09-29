@@ -14,6 +14,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Widgets
     Multimedia
     Network
+    Svg
 )
 
 # -----------------------------------------------------------------------------
@@ -67,6 +68,7 @@ set(SOURCES
     src/widgets/SentenceListView.cpp
     src/widgets/MarkdownNoteEditor.h
     src/widgets/MarkdownNoteEditor.cpp
+    resources/resources.qrc
 )
 
 add_executable(recorder ${SOURCES})
@@ -84,6 +86,7 @@ target_link_libraries(recorder PRIVATE
     Qt6::Widgets
     Qt6::Multimedia
     Qt6::Network
+    Qt6::Svg
 )
 
 install(TARGETS recorder DESTINATION bin)

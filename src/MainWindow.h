@@ -10,6 +10,7 @@
 #include <QListWidget>
 #include <QLineEdit>
 #include <QSplitter>
+#include <QStackedWidget>
 
 #include "audio/AudioRecorder.h"
 #include "audio/AudioPlayer.h"
@@ -26,6 +27,12 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
+    enum class WorkspaceLayout {
+        StackedSplit, // Note on top, Transcript under it
+        SideSplit,    // Note on left, Transcript on right
+        Tabbed        // Classic tabs
+    };
+
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override = default;
 
@@ -34,11 +41,18 @@ private slots:
     void onNewSession();
     void onSaveSession();
     void onDeleteSession();
+    void onOpenFolder();
     void onSessionSelected(int index);
     void updateSessionList();
 
-    // Audio recording
+    // Sidebar & Layout controls
+    void onSidebarToggle();
+    void setWorkspaceLayout(WorkspaceLayout layout);
+
+    // Audio recording & multi-paragraph/retake
     void onRecordToggle();
+    void onRecordAppendToggle();
+    void onRetake();
     void onPauseToggle();
     void onRecordingDurationChanged(qint64 ms);
     void onRecordingFinished(const QString &savedPath, qint64 durationMs);
@@ -109,10 +123,22 @@ private:
     std::vector<float> m_currentAudioPcm;
     int m_activeSentenceId = -1;
     int m_requestingTtsSentenceId = -1;
+    WorkspaceLayout m_currentLayout = WorkspaceLayout::StackedSplit;
+
+    // Splitters
+    QSplitter *m_mainSplitter = nullptr;
+    QWidget *m_sidebarWidget = nullptr;
+    QSplitter *m_workspaceSplitter = nullptr;
+    QStackedWidget *m_workspaceStack = nullptr;
 
     // UI Widgets
+    QPushButton *m_sidebarToggleBtn = nullptr;
+    QPushButton *m_openFolderBtn = nullptr;
+
     QComboBox *m_inputDeviceCombo = nullptr;
     QPushButton *m_recordBtn = nullptr;
+    QPushButton *m_recordAppendBtn = nullptr;
+    QPushButton *m_retakeBtn = nullptr;
     QPushButton *m_pauseBtn = nullptr;
     QLabel *m_recordingTimeLabel = nullptr;
     AudioLevelMeter *m_levelMeter = nullptr;
@@ -121,6 +147,11 @@ private:
     QComboBox *m_languageCombo = nullptr;
     QPushButton *m_transcribeBtn = nullptr;
     QProgressBar *m_transcribeProgress = nullptr;
+
+    // Layout toggles
+    QPushButton *m_layoutSplitVBtn = nullptr;
+    QPushButton *m_layoutSplitHBtn = nullptr;
+    QPushButton *m_layoutTabsBtn = nullptr;
 
     WaveformWidget *m_waveformWidget = nullptr;
     QTabWidget *m_tabWidget = nullptr;
