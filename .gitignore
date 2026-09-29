@@ -1,0 +1,28 @@
+# Build directories
+build/
+CMakeFiles/
+CMakeCache.txt
+*.o
+*.a
+*.so
+
+# Python / Pocket TTS
+__pycache__/
+*.py[cod]
+*$py.class
+pocket-tts/.venv/
+pocket-tts/dist/
+pocket-tts/*.egg-info/
+
+# Local cache & data
+.cache/
+sessions/
+*.part
+*.wav
+!pocket-tts/tests/assets/*.wav
+
+# IDE / Editors
+.vscode/
+.idea/
+*.swp
+*~
